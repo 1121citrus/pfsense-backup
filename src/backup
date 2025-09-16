@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+
+# An application specific service to create pfSense backups and copy them off site.
+#
+# Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+# 
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# ~/.env is how the startup encodes arguments to be accessed by this command in cron job
+ENV=${ENV:-${HOME:-/root}/.env}
+# shellcheck disable=SC1090
+[[ -r "${ENV}" ]] && source "${ENV}"
+
+set -o errexit -o errtrace -o nounset -o pipefail
+set +o xtrace +o verbose
+is_true "${DEBUG:=false}" && set -o xtrace -o verbose
+
+command=$(basename "${0}")
+
+# Create a work directory -- to cleanup any debris
+workdir=$(mktemp -d)
+# shellcheck disable=SC2329
+cleanup() {
+    rm -rf "${workdir}" >/dev/null 2>&1 || true
+}
+trap 'cleanup' EXIT
+cd "${workdir}"
+
+export AWS_CONFIG_FILE="${AWS_CONFIG_FILE:=/run/secrets/aws-config}"
+
+bucket="${AWS_S3_BUCKET_NAME:=}"
+[[ -n "${bucket}" ]] || error 'need AWS_S3_BUCKET_NAME'
+dryrun="${AWS_DRYRUN:=false}"
+# pfSense host OR IP (note: do not include the final /, otherwise backup will fail)
+internal_gateway=$(traceroute -m 1 1.1.1.1 2>/dev/null | head -1 | sed -E 's/.* [(]([^)]*)[)].*/\1/' || true)
+host="${PFSENSE_HOST:-${TAILSCALE_HOST:-${internal_gateway}}}"
+[[ -n "${host}" ]] || error 'need PFSENSE_HOST or TAILSCALE_HOST'
+identity_file="${PFSENSE_IDENTITY_FILE:=/run/secrets/pfsense-identity}"
+[[ -n "${identity_file}" ]] || error 'need PFSENSE_IDENTITY_FILE (default: /run/secrets/pfsense-identity)'
+[[ -r "${identity_file}" ]] || error "${identity_file} not found or is not readable"
+chmod 600 "${identity_file}" 2>/dev/null || true
+user="${PFSENSE_USER:=remote-backup}"
+
+# don't use ssh config file; no pty 
+ssh_args="-F /dev/null -T -o LogLevel=quiet -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${PFSENSE_EXTRA_SSH_ARGS:-}"
+sshpass_args="-P passphrase ${PFSENSE_EXTRA_SSHPASS_ARGS:=}"
+if is_true "${DEBUG}"; then
+    ssh_args="-v ${ssh_args}"
+    sshpass_args="-v ${sshpass_args}"
+fi
+
+have_password=false
+PFSENSE_IDENTITY_PASSWORD="${PFSENSE_IDENTITY_PASSWORD:=}"
+if [[ -n "${PFSENSE_IDENTITY_PASSWORD}" ]]; then
+    sshpass_args="${sshpass_args} -p ${PFSENSE_IDENTITY_PASSWORD}"
+    have_password=true
+elif [[ -r "${PFSENSE_IDENTITY_PASSWORD_FILE:=/run/secrets/pfsense-identity-password}" ]]; then
+    chmod 600 "${PFSENSE_IDENTITY_PASSWORD_FILE}" 2>/dev/null || true
+    sshpass_args="${sshpass_args} -f ${PFSENSE_IDENTITY_PASSWORD_FILE}"
+    have_password=true
+fi
+${have_password} || error 'need PFSENSE_IDENTITY_PASSWORD or PFSENSE_IDENTITY_PASSWORD_FILE (default: /run/secrets/pfsense-identity-password)'
+
+gpg_encrypt=false
+gpg_args="--symmetric --cipher-algo ${GPG_CIPHER_ALGO:=aes256} --batch"
+if [[ -n "${GPG_PASSPHRASE:=}" ]]; then
+    gpg_args="${gpg_args} --passphrase ${GPG_PASSPHRASE}"
+    gpg_encrypt=true
+elif [[ -r "${GPG_PASSPHRASE_FILE:=/run/secrets/gpg-passphrase}" ]]; then
+    chmod 600 "${GPG_PASSPHRASE_FILE}" 2>/dev/null || true
+    gpg_args="${gpg_args} --passphrase-file ${GPG_PASSPHRASE_FILE}"
+    gpg_encrypt=true
+fi
+
+openssl_rsa_encrypt=false
+# if [[ -r "${RSA_PUBLIC_KEY_FILE:=/run/secrets/rsa-public-key}" ]]; then
+#     error "RSA_PUBLIC_KEY_FILE not implemented - check back later"
+#     chmod 600 "${RSA_PUBLIC_KEY_FILE}" 2>/dev/null || true
+#     openssl_rsa_encrypt=true
+# fi
+
+"${gpg_encrypt}" && "${openssl_rsa_encrypt}" && \
+    error "symmetric gpg and asymmetric RSA encryption cannot be used together"
+
+info "begin ${command}"
+
+config_tmp=$(mktemp)
+# shellcheck disable=SC2086
+sshpass ${sshpass_args} ssh ${ssh_args} \
+    -l "${user}" \
+    -i "${identity_file}" \
+    "${host}" > "${config_tmp}" || \
+    (error "configuration download failed" && debug "sshpass ${sshpass_args} ssh ${ssh_args}")
+
+version=$(grep -m1 '<version' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<")
+[[ -n "${version}" ]] || error 'invalid pfSense configuration file - missing version'
+hostname=$(grep -m1 '<hostname' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<")
+[[ -n "${hostname}" ]] || error 'invalid pfSense configuration file - missing hostname'
+domain=$(grep -m1 '<domain' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<")
+[[ -n "${domain}" ]] || error 'invalid pfSense configuration file - missing domain'
+backup_file="$(date +%Y%m%dT%H%M%S)-${hostname}-pfsense-v${version}-config-backup.xml"
+
+# Add header to pulled XML file
+(echo '<?xml version="1.0" encoding="UTF-8"?>' && \
+ echo "<!-- ${backup_file} -->" >> "${backup_file}" && \
+ tail -n +2 "${config_tmp}") > "${backup_file}"
+output_file="${backup_file}"
+
+case "${COMPRESSION:=none}" in
+    bzip | bzip2)
+        info "compressing backup with bzip2: ${output_file}.bz2"
+        bzip2 -9 --keep --quiet --stdout  <"${output_file}" >"${output_file}.bz2"
+        output_file="${output_file}.bz2"
+        ;;
+ 
+    bzip3)
+        info "compressing backup with bzip3: ${output_file}.bz3"
+        bzip3 --batch --keep --stdout "${output_file}" >"${output_file}.bz3"
+        output_file="${output_file}.bz3"
+        ;;
+ 
+    gz | gzip)
+        info "compressing backup with gzip --best --no-name --quiet --synchronous: ${output_file}.gz"
+        gzip --best --no-name --quiet --synchronous <"${output_file}" >"${output_file}.gz"
+        output_file="${output_file}.gz"
+        ;;
+
+    lzo | lzop)
+        info "compressing backup with lzop: ${output_file}.lzo"
+        lzop <"${output_file}" >"${output_file}.lzo"
+        output_file="${output_file}.lzo"
+        ;;
+
+    none)
+        true
+        ;;
+
+    lzma | xz)
+        info "compressing backup with lzma/xz --compress --extreme --quiet: ${output_file}.xz"
+        xz --compress --extreme --quiet <"${output_file}" >"${output_file}.xz"
+        output_file="${output_file}.xz"
+        ;;
+
+    pigz)
+        info "compressing backup with pigz --best --no-name --quiet --synchronous: ${output_file}.pgz"
+        pigz --best --no-name --quiet --synchronous <"${output_file}" >"${output_file}.pgz"
+        output_file="${output_file}.pgz"
+        ;;
+
+    pixz)
+        info "compressing backup with pixz -9 -t: ${output_file}.pxz"
+        pixz -9 -t <"${output_file}" >"${output_file}.pxz"
+        output_file="${output_file}.pxz"
+        ;;
+
+    zip)
+        info "compressing backup with zip -q -9: ${output_file}.zip"
+        zip -q -9 <"${output_file}" >"${output_file}.zip"
+        output_file="${output_file}.zip"
+        ;;
+
+    *)
+        error "unknown compression algrorithm: '${COMPRESSION}"
+        ;;
+esac
+
+if "${gpg_encrypt}"; then
+    info "encrypting backup with GPT"
+    # shellcheck disable=SC2086
+    gpg ${gpg_args} --output "${output_file}.gpg" "${output_file}"
+    output_file="${output_file}.gpg"
+fi
+
+# if "${openssl_rsa_encrypt}"; then
+#     info "encrypting backup with RSA public key"
+#     openssl rsautl -encrypt \
+#                    -pubin \
+#                    -inkey <(ssh-keygen -f "${RSA_PUBLIC_KEY_FILE}" -e -m 'PKCS8') \
+#                    -ssl \
+#                    -in "${output_file}" \
+#                    -out "${output_file}.enc"
+#     output_file="${output_file}.enc"
+# fi
+
+info "downloaded '${backup_file}' to '${output_file}'"
+
+awsargs=--no-progress
+is_true "${dryrun}" && awsargs="${awsargs} --dryrun"
+
+info "begin mv '${output_file}' to S3 bucket '${bucket}'"
+uri="s3://${bucket}/${output_file}"
+info "running aws s3 mv ${awsargs} ${output_file} ${uri}"
+# shellcheck disable=SC2086
+(aws s3 mv ${awsargs} "${output_file}" "${uri}" || \
+    (error "aws s3 mv exited with status ${?}" || true)) 2>&1 | info
+info "completed aws s3 mv ${awsargs} ${output_file} ${uri}"
+info "finish ${command}"
+exit 0
+
