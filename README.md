@@ -1,6 +1,6 @@
 # 1121citrus/pfsense-backup
 
-<!---->An application specific service to create pfSense backups and copy them to S3.
+An application specific service to create [pfSense](https://docs.netgate.com/pfsense/en/latest/) backups and copy them to S3.
 
 ## Contents
 
@@ -17,15 +17,14 @@
 
 ## Synopsis
 
-- Periodically backup the pfSense router to off site storage (S3).
+- Periodically backup the [pfSense](https://docs.netgate.com/pfsense/en/latest/) router to off site storage (S3).
 - Backup files are renamed so they sort by date.
 - Credentials are supplied by a compose
 [secret](https://docs.docker.com/compose/how-tos/use-secrets/).
 
 ## Overview
 
-This service will periodically fetch a pfSense firewall configuration
-and transfer it to AWS.
+This service will periodically fetch a [pfSense](https://docs.netgate.com/pfsense/en/latest/) firewall configuration and transfer it to AWS.
 
 You must separately provision and deploy:
 
