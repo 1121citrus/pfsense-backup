@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# An application specific service to rename Home Assistant backups and copy them off site.
+# An application specific service to create pfSense backups and copy them off site.
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
 #
 # This program is free software: you can redistribute it and/or modify
@@ -35,11 +35,16 @@ export DEBUG='${DEBUG:-false}'
 export GPG_CIPHER_ALGO='${GPG_CIPHER_ALGO:-aes256}'
 export GPG_PASSPHRASE='${GPG_PASSPHRASE:-}'
 export GPG_PASSPHRASE_FILE='${GPG_PASSPHRASE_FILE:-/run/secrets/gpg-passphrase}'
+export HEALTHCHECK_MAX_AGE_SECONDS='${HEALTHCHECK_MAX_AGE_SECONDS:-172800}'
+export HEALTHCHECK_STARTUP_GRACE_SECONDS='${HEALTHCHECK_STARTUP_GRACE_SECONDS:-900}'
+export HEALTHCHECK_SUCCESS_FILE='${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}'
 export PFSENSE_HOST='${PFSENSE_HOST:-}'
 export PFSENSE_USER='${PFSENSE_USER:-}'
 export PFSENSE_IDENTITY_FILE='${PFSENSE_IDENTITY_FILE:-/run/secrets/pfsense-identity}'
 export PFSENSE_IDENTITY_PASSWORD='${PFSENSE_IDENTITY_PASSWORD:-}'
 export PFSENSE_IDENTITY_PASSWORD_FILE='${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}'
+export PFSENSE_SSH_KNOWN_HOSTS_FILE='${PFSENSE_SSH_KNOWN_HOSTS_FILE:-/root/.ssh/known_hosts}'
+export PFSENSE_SSH_STRICT_HOST_KEY_CHECKING='${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}'
 export RSA_PUBLIC_KEY_FILE='${RSA_PUBLIC_KEY_FILE:=/run/secrets/rsa-public-key}'
 export TAILSCALE_HOST='${TAILSCALE_HOST:-}'
 export TZ='${TZ:-UTC}'
@@ -52,6 +57,7 @@ chmod -c 0600 "${ENV}" | info
 cat "${ENV}" | clean-credentials | info
 # shellcheck disable=SC1090
 source "${ENV}"
+touch /tmp/pfsense-backup.started-at
 
 # Add our cron entry, and direct stdout & stderr to Docker commands stdout
 COMMAND=${COMMAND:-/usr/local/bin/backup}

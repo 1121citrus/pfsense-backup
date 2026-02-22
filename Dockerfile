@@ -24,14 +24,20 @@ FROM 1121citrus/ha-bash-base:${HA_BASH_BASE_TAG}
 # docker secrets
 RUN set -Eeux; \
     apk update && \
+    apk upgrade --no-cache --no-interactive && \
     apk add --no-cache --no-interactive --upgrade \
         aws-cli>2.27 \
         bzip2>1.0 \
         bzip3>1.5 \
         gnupg>2.4 \
+        libxml2>2.13.9 \
         gzip>1.14 \
+        lzop>1.04 \
         openssh>10.0 \
         openssl>3.5 \
+        pcre2>10.46 \
+        php83>8.3.29 \
+        php83-common>8.3.29 \
         pigz>2.8 \
         pixz>1.0 \
         sshpass>1.10 \
@@ -41,14 +47,15 @@ RUN set -Eeux; \
     mkdir -pv -m 700 /root/.{gnupg,ssh} && \
     touch /root/.gnupg/pubring.kbx && \
     chmod 600 /root/.gnupg/pubring.kbx && \
-    ln -sfv /run/secrets/pfsense_identity /root/.ssh/pfsense-identity && \
+    rm -fv /usr/local/bin/docker /usr/bin/docker /bin/docker || true && \
+    ln -sfv /run/secrets/pfsense-identity /root/.ssh/pfsense-identity && \
     mkdir --parents --verbose --mode 755 /usr/local/1121citrus/bin \
     true
 
 COPY --chmod=755 ./src/startup /usr/local/1121citrus/bin
 COPY --chmod=755 ./src/healthcheck ./src/backup /usr/local/bin/
 
-# HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD /usr/local/bin/healthcheck
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD /usr/local/bin/healthcheck
 
 CMD [ "/usr/local/1121citrus/bin/startup" ]
 

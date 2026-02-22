@@ -22,6 +22,8 @@ ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
 [[ -r "${ENV}" ]] && source "${ENV}"
 
+HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}"
+
 set -o errexit -o errtrace -o nounset -o pipefail
 set +o xtrace +o verbose
 is_true "${DEBUG:=false}" && set -o xtrace -o verbose
@@ -53,7 +55,16 @@ chmod 600 "${identity_file}" 2>/dev/null || true
 user="${PFSENSE_USER:=remote-backup}"
 
 # don't use ssh config file; no pty 
-ssh_args="-F /dev/null -T -o LogLevel=quiet -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${PFSENSE_EXTRA_SSH_ARGS:-}"
+strict_host_key_checking="${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:=accept-new}"
+known_hosts_file="${PFSENSE_SSH_KNOWN_HOSTS_FILE:=/root/.ssh/known_hosts}"
+if [[ "${strict_host_key_checking}" == "no" ]]; then
+    known_hosts_arg="-o UserKnownHostsFile=/dev/null"
+else
+    touch "${known_hosts_file}"
+    chmod 600 "${known_hosts_file}" 2>/dev/null || true
+    known_hosts_arg="-o UserKnownHostsFile=${known_hosts_file}"
+fi
+ssh_args="-F /dev/null -T -o LogLevel=quiet -o StrictHostKeyChecking=${strict_host_key_checking} ${known_hosts_arg} ${PFSENSE_EXTRA_SSH_ARGS:-}"
 sshpass_args="-P passphrase ${PFSENSE_EXTRA_SSHPASS_ARGS:=}"
 if is_true "${DEBUG}"; then
     ssh_args="-v ${ssh_args}"
@@ -166,17 +177,17 @@ case "${COMPRESSION:=none}" in
 
     zip)
         info "compressing backup with zip -q -9: ${output_file}.zip"
-        zip -q -9 <"${output_file}" >"${output_file}.zip"
+        zip -q -9 "${output_file}.zip" "${output_file}"
         output_file="${output_file}.zip"
         ;;
 
     *)
-        error "unknown compression algrorithm: '${COMPRESSION}"
+        error "unknown compression algorithm: '${COMPRESSION}'"
         ;;
 esac
 
 if "${gpg_encrypt}"; then
-    info "encrypting backup with GPT"
+    info "encrypting backup with GPG"
     # shellcheck disable=SC2086
     gpg ${gpg_args} --output "${output_file}.gpg" "${output_file}"
     output_file="${output_file}.gpg"
@@ -205,6 +216,7 @@ info "running aws s3 mv ${awsargs} ${output_file} ${uri}"
 (aws s3 mv ${awsargs} "${output_file}" "${uri}" || \
     (error "aws s3 mv exited with status ${?}" || true)) 2>&1 | info
 info "completed aws s3 mv ${awsargs} ${output_file} ${uri}"
+touch "${HEALTHCHECK_SUCCESS_FILE}" 2>/dev/null || true
 info "finish ${command}"
 exit 0
 

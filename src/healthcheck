@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# An application specific service to rename Home Assistant backups and copy them off site.
+# An application specific service to create pfSense backups and copy them off site.
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,15 +24,45 @@ set -o errexit -o errtrace -o nounset -o pipefail
 set +o xtrace +o verbose
 is_true "${DEBUG:-false}" && set -o xtrace -o verbose
 
+HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}"
+HEALTHCHECK_STARTUP_FILE="${HEALTHCHECK_STARTUP_FILE:-/tmp/pfsense-backup.started-at}"
+HEALTHCHECK_MAX_AGE_SECONDS="${HEALTHCHECK_MAX_AGE_SECONDS:-172800}"
+HEALTHCHECK_STARTUP_GRACE_SECONDS="${HEALTHCHECK_STARTUP_GRACE_SECONDS:-900}"
+
+function epoch_modified() {
+    local file=$1
+    stat -c %Y "${file}" 2>/dev/null || stat -f %m "${file}"
+}
+
 function has_cronjob_run() {
-    # FIXME -- See https://github.com/dragonmantank/cron-expression $cron->getPreviousRunDate()
-    # Compare with a timestamp file to see if it ran as expected
-    true
+    local now
+    now=$(date +%s)
+
+    if [[ -f "${HEALTHCHECK_SUCCESS_FILE}" ]]; then
+        local last_success
+        local age
+        last_success=$(epoch_modified "${HEALTHCHECK_SUCCESS_FILE}")
+        age=$((now - last_success))
+        (( age <= HEALTHCHECK_MAX_AGE_SECONDS )) && return 0
+        error "latest successful backup is too old: ${age}s > ${HEALTHCHECK_MAX_AGE_SECONDS}s"
+    fi
+
+    if [[ -f "${HEALTHCHECK_STARTUP_FILE}" ]]; then
+        local started_at
+        local uptime
+        started_at=$(epoch_modified "${HEALTHCHECK_STARTUP_FILE}")
+        uptime=$((now - started_at))
+        (( uptime <= HEALTHCHECK_STARTUP_GRACE_SECONDS )) && return 0
+        error "no successful backup marker yet and startup grace exceeded: ${uptime}s > ${HEALTHCHECK_STARTUP_GRACE_SECONDS}s"
+    fi
+
+    error "missing both startup and successful backup markers"
 }
 
 function is_crond_running() {
-    # shellcheck disable=SC2009
-    if (ps aux | grep -iq crond); then
+    if pidof crond >/dev/null 2>&1; then
+        true || info crond is running
+    elif ps aux | grep -Eq '[c]rond( |$)'; then
         true || info crond is running
     else
         error crond is not running
@@ -40,7 +70,7 @@ function is_crond_running() {
 }
 
 function is_crontab_configured() {
-    if (crontab -l | grep -q ' /usr/local/bin/backup 2>&1'); then
+    if [[ -r /var/spool/cron/crontabs/root ]] && grep -q ' /usr/local/bin/backup 2>&1' /var/spool/cron/crontabs/root; then
         true || info crontab is configured
     else
         error crontab is not configured
