@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+# pfsense-backup: test required-variable validation in src/backup.
+#
+# Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+set -euo pipefail
+
+setup() {
+    whereami=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+    IMAGE=${IMAGE:-1121citrus/pfsense-backup:latest}
+    chmod +x "${whereami}/bin/"*
+
+    run_backup() {
+        docker run -i --rm ${DOCKER_RUN_ARGS:-} \
+            -e "PATH=/test/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+            -v "${whereami}/bin:/test/bin:ro" \
+            -v "${whereami}/fixtures:/test/fixtures:ro" \
+            -v "${whereami}/fixtures/test-path.sh:/etc/profile.d/test-path.sh:ro" \
+            "$@" \
+            "${IMAGE}" /usr/local/bin/backup 2>&1
+    }
+    export -f run_backup
+}
+
+test_backup_missing_bucket() {
+    run_backup \
+        -e PFSENSE_HOST=fake-host \
+        -e PFSENSE_IDENTITY_FILE=/test/fixtures/pfsense-identity.key \
+        -e PFSENSE_IDENTITY_PASSWORD=testpassword \
+        > /dev/null && result=0 || result=$?
+    if [[ ${result} -ne 0 ]]; then
+        echo "PASS '${FUNCNAME[0]}': exits non-zero when AWS_S3_BUCKET_NAME is unset"
+    else
+        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero"
+        return 1
+    fi
+}
+
+test_backup_missing_host() {
+    run_backup \
+        -e AWS_S3_BUCKET_NAME=test-bucket \
+        -e PFSENSE_IDENTITY_FILE=/test/fixtures/pfsense-identity.key \
+        -e PFSENSE_IDENTITY_PASSWORD=testpassword \
+        > /dev/null && result=0 || result=$?
+    if [[ ${result} -ne 0 ]]; then
+        echo "PASS '${FUNCNAME[0]}': exits non-zero when PFSENSE_HOST and TAILSCALE_HOST are unset"
+    else
+        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero"
+        return 1
+    fi
+}
+
+test_backup_missing_identity_file() {
+    run_backup \
+        -e AWS_S3_BUCKET_NAME=test-bucket \
+        -e PFSENSE_HOST=fake-host \
+        -e PFSENSE_IDENTITY_FILE=/nonexistent/pfsense.key \
+        -e PFSENSE_IDENTITY_PASSWORD=testpassword \
+        > /dev/null && result=0 || result=$?
+    if [[ ${result} -ne 0 ]]; then
+        echo "PASS '${FUNCNAME[0]}': exits non-zero when identity file does not exist"
+    else
+        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero"
+        return 1
+    fi
+}
+
+test_backup_missing_password() {
+    run_backup \
+        -e AWS_S3_BUCKET_NAME=test-bucket \
+        -e PFSENSE_HOST=fake-host \
+        -e PFSENSE_IDENTITY_FILE=/test/fixtures/pfsense-identity.key \
+        -e PFSENSE_IDENTITY_PASSWORD= \
+        -e PFSENSE_IDENTITY_PASSWORD_FILE=/nonexistent/password \
+        > /dev/null && result=0 || result=$?
+    if [[ ${result} -ne 0 ]]; then
+        echo "PASS '${FUNCNAME[0]}': exits non-zero when neither password nor password file is provided"
+    else
+        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero"
+        return 1
+    fi
+}
+
+test_backup_unknown_compression() {
+    run_backup \
+        -e AWS_S3_BUCKET_NAME=test-bucket \
+        -e PFSENSE_HOST=fake-host \
+        -e PFSENSE_IDENTITY_FILE=/test/fixtures/pfsense-identity.key \
+        -e PFSENSE_IDENTITY_PASSWORD=testpassword \
+        -e COMPRESSION=badcompressor \
+        > /dev/null && result=0 || result=$?
+    if [[ ${result} -ne 0 ]]; then
+        echo "PASS '${FUNCNAME[0]}': exits non-zero on unknown COMPRESSION value"
+    else
+        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero"
+        return 1
+    fi
+}
+
+run_tests() {
+    local passed=0
+    local tests=(
+        test_backup_missing_bucket
+        test_backup_missing_host
+        test_backup_missing_identity_file
+        test_backup_missing_password
+        test_backup_unknown_compression
+    )
+
+    setup || { echo "ERROR: Setup failed"; return 1; }
+
+    echo "Running tests for backup required-variable validation..."
+    echo "========================================================"
+
+    for test in "${tests[@]}"; do
+        "${test}" && ((passed++)) || :
+    done
+
+    local failed=$(( ${#tests[@]} - passed ))
+    echo "========================================================"
+    echo "Results: ${passed} passed, ${failed} failed"
+    return "${failed}"
+}
+
+[[ "${BASH_SOURCE[0]}" == "$0" ]] && run_tests

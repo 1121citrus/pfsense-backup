@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<pfsense>
+  <system>
+    <hostname>test-firewall</hostname>
+    <domain>example.test</domain>
+  </system>
+</pfsense>

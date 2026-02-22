@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<pfsense>
+  <version>24.11</version>
+  <system>
+    <hostname>test-firewall</hostname>
+  </system>
+</pfsense>

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+# sshpass stub: strip sshpass-specific flags and exec the remaining command.
+#
+# Supported flags consumed: -p <password>  -f <file>  -P <prompt>  -e  -v
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p|-f|-P) shift 2; continue ;;
+        -e|-v)    shift;   continue ;;
+        *) break ;;
+    esac
+done
+
+exec "$@"

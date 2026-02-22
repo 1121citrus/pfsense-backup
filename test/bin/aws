@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+# aws stub: simulate successful S3 operations.
+#
+# Outputs a "move:" line matching the real aws s3 mv format so that the
+# backup script's output-comparison assertions can match against it.
+
+if [[ "${1:-}" == "s3" && "${2:-}" == "mv" ]]; then
+    # Grab the last two positional (non-flag) arguments: source and destination.
+    args=()
+    for arg in "$@"; do
+        [[ "${arg}" =~ ^- ]] || args+=("${arg}")
+    done
+    echo "move: ${args[-2]} to ${args[-1]}"
+fi
+
+exit 0

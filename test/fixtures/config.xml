@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<pfsense>
+  <version>24.11</version>
+  <system>
+    <hostname>test-firewall</hostname>
+    <domain>example.test</domain>
+    <dnsserver>1.1.1.1</dnsserver>
+    <timeservers>0.pfsense.pool.ntp.org</timeservers>
+    <timezone>America/New_York</timezone>
+  </system>
+  <interfaces>
+    <wan>
+      <if>em0</if>
+      <ipaddr>dhcp</ipaddr>
+    </wan>
+    <lan>
+      <if>em1</if>
+      <ipaddr>192.168.1.1</ipaddr>
+      <subnet>24</subnet>
+    </lan>
+  </interfaces>
+</pfsense>

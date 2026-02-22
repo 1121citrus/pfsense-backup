@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+# ssh stub: output the pfSense config fixture instead of connecting.
+#
+# To point at a different fixture, set SSH_FIXTURE_FILE before running.
+
+cat "${SSH_FIXTURE_FILE:-/test/fixtures/config.xml}"

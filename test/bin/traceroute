@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+# traceroute stub: produce no output.
+#
+# This forces internal_gateway to be empty so that tests that need
+# PFSENSE_HOST to be required can verify the missing-host error path.
+
+exit 0
