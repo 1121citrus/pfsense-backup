@@ -114,17 +114,17 @@ sshpass ${sshpass_args} ssh ${ssh_args} \
     "${host}" > "${config_tmp}" || \
     (error "configuration download failed" && debug "sshpass ${sshpass_args} ssh ${ssh_args}")
 
-version=$(grep -m1 '<version' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<")
+version=$(grep -m1 '<version' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
 [[ -n "${version}" ]] || error 'invalid pfSense configuration file - missing version'
-hostname=$(grep -m1 '<hostname' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<")
+hostname=$(grep -m1 '<hostname' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
 [[ -n "${hostname}" ]] || error 'invalid pfSense configuration file - missing hostname'
-domain=$(grep -m1 '<domain' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<")
+domain=$(grep -m1 '<domain' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
 [[ -n "${domain}" ]] || error 'invalid pfSense configuration file - missing domain'
 backup_file="$(date +%Y%m%dT%H%M%S)-${hostname}-pfsense-v${version}-config-backup.xml"
 
 # Add header to pulled XML file
 (echo '<?xml version="1.0" encoding="UTF-8"?>' && \
- echo "<!-- ${backup_file} -->" >> "${backup_file}" && \
+ echo "<!-- ${backup_file} -->" && \
  tail -n +2 "${config_tmp}") > "${backup_file}"
 output_file="${backup_file}"
 
