@@ -18,7 +18,6 @@
 
 set -o errexit -o errtrace -o nounset -o pipefail
 set +o xtrace +o verbose
-if is_true "${DEBUG:-false}"; then set -o xtrace -o verbose; fi
 
 ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
@@ -27,30 +26,34 @@ ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
 source /usr/local/bin/common-functions
 
+if is_true "${DEBUG:-false}"; then set -o xtrace -o verbose; fi
+
 # Write cronjob env to file, fill in sensible defaults, and read them back in
+# Use a helper to safely quote values containing single quotes
+__quote() { printf '%s' "${1//\'/\'\"\'\"\'}" ; }
 cat <<EOF >"${ENV}"
-export AWS_CONFIG_FILE='${AWS_CONFIG_FILE:-/run/secrets/aws-config}'
-export AWS_DRYRUN='${AWS_DRYRUN:-false}'
-export AWS_S3_BUCKET_NAME='${AWS_S3_BUCKET_NAME:?Need bucket}'
-export COMPRESSION='${COMPRESSION:-none}'
-export CRON_EXPRESSION='${CRON_EXPRESSION:-@daily}'
-export DEBUG='${DEBUG:-false}'
-export GPG_CIPHER_ALGO='${GPG_CIPHER_ALGO:-aes256}'
-export GPG_PASSPHRASE='${GPG_PASSPHRASE:-}'
-export GPG_PASSPHRASE_FILE='${GPG_PASSPHRASE_FILE:-/run/secrets/gpg-passphrase}'
-export HEALTHCHECK_MAX_AGE_SECONDS='${HEALTHCHECK_MAX_AGE_SECONDS:-172800}'
-export HEALTHCHECK_STARTUP_GRACE_SECONDS='${HEALTHCHECK_STARTUP_GRACE_SECONDS:-900}'
-export HEALTHCHECK_SUCCESS_FILE='${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}'
-export PFSENSE_HOST='${PFSENSE_HOST:-}'
-export PFSENSE_USER='${PFSENSE_USER:-}'
-export PFSENSE_IDENTITY_FILE='${PFSENSE_IDENTITY_FILE:-/run/secrets/pfsense-identity}'
-export PFSENSE_IDENTITY_PASSWORD='${PFSENSE_IDENTITY_PASSWORD:-}'
-export PFSENSE_IDENTITY_PASSWORD_FILE='${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}'
-export PFSENSE_SSH_KNOWN_HOSTS_FILE='${PFSENSE_SSH_KNOWN_HOSTS_FILE:-/root/.ssh/known_hosts}'
-export PFSENSE_SSH_STRICT_HOST_KEY_CHECKING='${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}'
-export RSA_PUBLIC_KEY_FILE='${RSA_PUBLIC_KEY_FILE:=/run/secrets/rsa-public-key}'
-export TAILSCALE_HOST='${TAILSCALE_HOST:-}'
-export TZ='${TZ:-UTC}'
+export AWS_CONFIG_FILE='$(__quote "${AWS_CONFIG_FILE:-/run/secrets/aws-config}")'
+export AWS_DRYRUN='$(__quote "${AWS_DRYRUN:-false}")'
+export AWS_S3_BUCKET_NAME='$(__quote "${AWS_S3_BUCKET_NAME:?Need bucket}")'
+export COMPRESSION='$(__quote "${COMPRESSION:-none}")'
+export CRON_EXPRESSION='$(__quote "${CRON_EXPRESSION:-@daily}")'
+export DEBUG='$(__quote "${DEBUG:-false}")'
+export GPG_CIPHER_ALGO='$(__quote "${GPG_CIPHER_ALGO:-aes256}")'
+export GPG_PASSPHRASE='$(__quote "${GPG_PASSPHRASE:-}")'
+export GPG_PASSPHRASE_FILE='$(__quote "${GPG_PASSPHRASE_FILE:-/run/secrets/gpg-passphrase}")'
+export HEALTHCHECK_MAX_AGE_SECONDS='$(__quote "${HEALTHCHECK_MAX_AGE_SECONDS:-172800}")'
+export HEALTHCHECK_STARTUP_GRACE_SECONDS='$(__quote "${HEALTHCHECK_STARTUP_GRACE_SECONDS:-900}")'
+export HEALTHCHECK_SUCCESS_FILE='$(__quote "${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}")'
+export PFSENSE_HOST='$(__quote "${PFSENSE_HOST:-}")'
+export PFSENSE_USER='$(__quote "${PFSENSE_USER:-}")'
+export PFSENSE_IDENTITY_FILE='$(__quote "${PFSENSE_IDENTITY_FILE:-/run/secrets/pfsense-identity}")'
+export PFSENSE_IDENTITY_PASSWORD='$(__quote "${PFSENSE_IDENTITY_PASSWORD:-}")'
+export PFSENSE_IDENTITY_PASSWORD_FILE='$(__quote "${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}")'
+export PFSENSE_SSH_KNOWN_HOSTS_FILE='$(__quote "${PFSENSE_SSH_KNOWN_HOSTS_FILE:-/root/.ssh/known_hosts}")'
+export PFSENSE_SSH_STRICT_HOST_KEY_CHECKING='$(__quote "${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}")'
+export RSA_PUBLIC_KEY_FILE='$(__quote "${RSA_PUBLIC_KEY_FILE:=/run/secrets/rsa-public-key}")'
+export TAILSCALE_HOST='$(__quote "${TAILSCALE_HOST:-}")'
+export TZ='$(__quote "${TZ:-UTC}")'
 EOF
 clean-credentials() {
     sed -E 's/(GPG_PASSPHRASE|PFSENSE_IDENTITY_PASSWORD)='"'"'.*'"'"'$/\1='"'**REDACTED**'"'/' 

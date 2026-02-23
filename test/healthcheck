@@ -3,8 +3,7 @@
 # pfsense-backup: test all healthcheck scenarios.
 #
 # Uses --entrypoint /bin/bash to set up container state before invoking
-# /usr/local/bin/healthcheck. BASH_ENV=/etc/profile (set in ha-bash-base)
-# ensures all helper functions are available inside the container.
+# /usr/local/bin/healthcheck.
 #
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
 # SPDX-License-Identifier: AGPL-3.0-or-later

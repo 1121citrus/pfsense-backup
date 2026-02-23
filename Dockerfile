@@ -20,8 +20,7 @@
 ARG ALPINE_TAG=3.21
 FROM alpine:${ALPINE_TAG}
 
-# Download pfmotion_wget.sh and convert it to using environment variables and
-# docker secrets
+# Install dependencies and configure the container environment
 RUN set -Eeux; \
     apk update && \
     apk upgrade --no-cache --no-interactive && \
@@ -46,7 +45,7 @@ RUN set -Eeux; \
     chmod 600 /root/.gnupg/pubring.kbx && \
     rm -fv /usr/local/bin/docker /usr/bin/docker /bin/docker || true && \
     ln -sfv /run/secrets/pfsense-identity /root/.ssh/pfsense-identity && \
-    mkdir --parents --verbose --mode 755 /usr/local/1121citrus/bin \
+    mkdir --parents --verbose --mode 755 /usr/local/1121citrus/bin && \
     true
 
 COPY --chmod=755 ./src/startup /usr/local/1121citrus/bin

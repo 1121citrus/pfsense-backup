@@ -58,39 +58,39 @@ $ docker run -i --rm \
 ### Example Log Output
 
 ```console
-20250916T163325 log [INFO] create env file /root/.env
-20250916T163325 log [INFO] mode of '/root/.env' changed from 0644 (rw-r--r--) to 0600 (rw-------)
-20250916T163325 log [INFO] export AWS_CONFIG_FILE='/run/secrets/aws-config'
-20250916T163325 log [INFO] export AWS_DRYRUN='false'
-20250916T163325 log [INFO] export AWS_S3_BUCKET_NAME='backups-bucket'
-20250916T163325 log [INFO] export CRON_EXPRESSION='*/15 * * * *'
-20250916T163325 log [INFO] export DEBUG='false'
-20250916T163325 log [INFO] export GPG_CIPHER_ALGO='aes256'
-20250916T163325 log [INFO] export GPG_PASSPHRASE='**REDACTED**'
-20250916T163325 log [INFO] export GPG_PASSPHRASE_FILE='/run/secrets/gpg-passphrase'
-20250916T163325 log [INFO] export PFSENSE_HOST='firewall'
-20250916T163325 log [INFO] export PFSENSE_USER=''
-20250916T163325 log [INFO] export PFSENSE_IDENTITY_FILE='/run/secrets/pfsense-identity'
-20250916T163325 log [INFO] export PFSENSE_IDENTITY_PASSWORD='**REDACTED**'
-20250916T163325 log [INFO] export PFSENSE_IDENTITY_PASSWORD_FILE='/run/secrets/pfsense-identity-password'
-20250916T163325 log [INFO] export RSA_PUBLIC_KEY_FILE='/run/secrets/rsa-public-key'
-20250916T163325 log [INFO] export TAILSCALE_HOST='100.76.132.97'
-20250916T163325 log [INFO] installing cron.d entry: /usr/local/bin/backup
-20250916T163325 log [INFO] mode of '/var/spool/cron/crontabs/root' changed from 0600 (rw-------) to 0644 (rw-r--r--)
-20250916T163325 log [INFO] crontab: */15 * * * * /usr/local/bin/backup 2>&1
-20250916T163325 log [INFO] handing the reins over to cron daemon
+[INFO] 20250916T163325 startup create env file /root/.env
+[INFO] 20250916T163325 startup mode of '/root/.env' changed from 0644 (rw-r--r--) to 0600 (rw-------)
+[INFO] 20250916T163325 startup export AWS_CONFIG_FILE='/run/secrets/aws-config'
+[INFO] 20250916T163325 startup export AWS_DRYRUN='false'
+[INFO] 20250916T163325 startup export AWS_S3_BUCKET_NAME='backups-bucket'
+[INFO] 20250916T163325 startup export CRON_EXPRESSION='*/15 * * * *'
+[INFO] 20250916T163325 startup export DEBUG='false'
+[INFO] 20250916T163325 startup export GPG_CIPHER_ALGO='aes256'
+[INFO] 20250916T163325 startup export GPG_PASSPHRASE='**REDACTED**'
+[INFO] 20250916T163325 startup export GPG_PASSPHRASE_FILE='/run/secrets/gpg-passphrase'
+[INFO] 20250916T163325 startup export PFSENSE_HOST='firewall'
+[INFO] 20250916T163325 startup export PFSENSE_USER=''
+[INFO] 20250916T163325 startup export PFSENSE_IDENTITY_FILE='/run/secrets/pfsense-identity'
+[INFO] 20250916T163325 startup export PFSENSE_IDENTITY_PASSWORD='**REDACTED**'
+[INFO] 20250916T163325 startup export PFSENSE_IDENTITY_PASSWORD_FILE='/run/secrets/pfsense-identity-password'
+[INFO] 20250916T163325 startup export RSA_PUBLIC_KEY_FILE='/run/secrets/rsa-public-key'
+[INFO] 20250916T163325 startup export TAILSCALE_HOST='100.76.132.97'
+[INFO] 20250916T163325 startup installing cron.d entry: /usr/local/bin/backup
+[INFO] 20250916T163325 startup mode of '/var/spool/cron/crontabs/root' changed from 0600 (rw-------) to 0644 (rw-r--r--)
+[INFO] 20250916T163325 startup crontab: */15 * * * * /usr/local/bin/backup 2>&1
+[INFO] 20250916T163325 startup handing the reins over to cron daemon
    .
    .
    .
-20250916T164500 log [INFO] begin backup
-20250916T164502 log [INFO] compressing backup with lzma/xz --compress --extreme --quiet: 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz
-20250916T164502 log [INFO] encrypting backup with GPG
-20250916T164503 log [INFO] downloaded '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml' to '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg'
-20250916T164503 log [INFO] begin mv '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg' to S3 bucket 'backups-bucket'
-20250916T164503 log [INFO] running aws s3 mv --no-progress 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
-20250916T164504 log [INFO] move: ./20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg to s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
-20250916T164504 log [INFO] completed aws s3 mv --no-progress 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
-20250916T164504 log [INFO] finish backup
+[INFO] 20250916T164500 backup begin backup
+[INFO] 20250916T164502 backup compressing backup with lzma/xz --compress --extreme --quiet: 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz
+[INFO] 20250916T164502 backup encrypting backup with GPG
+[INFO] 20250916T164503 backup downloaded '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml' to '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg'
+[INFO] 20250916T164503 backup begin mv '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg' to S3 bucket 'backups-bucket'
+[INFO] 20250916T164503 backup running aws s3 mv --no-progress 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
+[INFO] 20250916T164504 backup move: ./20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg to s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
+[INFO] 20250916T164504 backup completed aws s3 mv --no-progress 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
+[INFO] 20250916T164504 backup finish backup
 ```
 
 ## Example: Run "One Off" Backup
@@ -100,20 +100,19 @@ Add the `backup` command to the `docker run` command to create a single backup.
 ```console
 $ docker run -i --rm \
       -e AWS_S3_BUCKET_NAME=backups-bucket \
-      -e CRON_EXPRESSION='* * * * *' \
       -e PFSENSE_HOST=firewall \
       -v ./secrets/aws-config:/run/secrets/aws-config:ro \
       -v ~/.ssh/firewall-remote-backup.ed25519:/run/secrets/pfsense-identity:ro \
       -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
       -v /etc/localtime:/etc/localtime:ro \
       1121citrus/pfsense-backup backup
-20250915T013601 backup [INFO] begin backup
-20250915T013604 backup [INFO] downloaded '20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml'
-20250915T013604 backup [INFO] begin mv '20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml' to S3 bucket 'backups-bucket'
-20250915T013604 backup [INFO] running aws s3 mv --no-progress 20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml s3://backups-bucket/20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml
-20250915T013606 backup [INFO] move: ./20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml to s3://backups-bucket/20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml
-20250915T013606 backup [INFO] completed aws s3 mv --no-progress 20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml s3://backups-bucket/20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml
-20250915T013606 backup [INFO] finish backup
+[INFO] 20250915T013601 backup begin backup
+[INFO] 20250915T013604 backup downloaded '20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml'
+[INFO] 20250915T013604 backup begin mv '20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml' to S3 bucket 'backups-bucket'
+[INFO] 20250915T013604 backup running aws s3 mv --no-progress 20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml s3://backups-bucket/20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml
+[INFO] 20250915T013606 backup move: ./20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml to s3://backups-bucket/20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml
+[INFO] 20250915T013606 backup completed aws s3 mv --no-progress 20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml s3://backups-bucket/20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml
+[INFO] 20250915T013606 backup finish backup
 ```
 
 ## Example: Docker compose file

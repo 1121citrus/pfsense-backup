@@ -19,7 +19,7 @@
 function __log() {
     local severity=${1:?Need severity}
     shift
-    echo "[${severity}]" $(date '+%Y%m%dT%H%M%S') $(basename "${0}") "${@:-}" >/dev/stderr
+    echo "[${severity}]" "$(date '+%Y%m%dT%H%M%S')" "$(basename "${0}")" "${@:-}" >/dev/stderr
 }
 
 function log() {
