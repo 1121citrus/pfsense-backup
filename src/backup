@@ -58,27 +58,41 @@ user="${PFSENSE_USER:=remote-backup}"
 strict_host_key_checking="${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:=accept-new}"
 known_hosts_file="${PFSENSE_SSH_KNOWN_HOSTS_FILE:=/root/.ssh/known_hosts}"
 if [[ "${strict_host_key_checking}" == "no" ]]; then
-    known_hosts_arg="-o UserKnownHostsFile=/dev/null"
+    known_hosts_arg="UserKnownHostsFile=/dev/null"
 else
     touch "${known_hosts_file}"
     chmod 600 "${known_hosts_file}" 2>/dev/null || true
-    known_hosts_arg="-o UserKnownHostsFile=${known_hosts_file}"
+    known_hosts_arg="UserKnownHostsFile=${known_hosts_file}"
 fi
-ssh_args="-F /dev/null -T -o LogLevel=quiet -o StrictHostKeyChecking=${strict_host_key_checking} ${known_hosts_arg} ${PFSENSE_EXTRA_SSH_ARGS:-}"
-sshpass_args="-P passphrase ${PFSENSE_EXTRA_SSHPASS_ARGS:=}"
+ssh_args=(
+    -F /dev/null
+    -T
+    -o LogLevel=quiet
+    -o "StrictHostKeyChecking=${strict_host_key_checking}"
+    -o "${known_hosts_arg}"
+)
+if [[ -n "${PFSENSE_EXTRA_SSH_ARGS:-}" ]]; then
+    read -r -a ssh_extra_args <<< "${PFSENSE_EXTRA_SSH_ARGS}"
+    ssh_args+=("${ssh_extra_args[@]}")
+fi
+sshpass_args=(-P passphrase)
+if [[ -n "${PFSENSE_EXTRA_SSHPASS_ARGS:=}" ]]; then
+    read -r -a sshpass_extra_args <<< "${PFSENSE_EXTRA_SSHPASS_ARGS}"
+    sshpass_args+=("${sshpass_extra_args[@]}")
+fi
 if is_true "${DEBUG}"; then
-    ssh_args="-v ${ssh_args}"
-    sshpass_args="-v ${sshpass_args}"
+    ssh_args=(-v "${ssh_args[@]}")
+    sshpass_args=(-v "${sshpass_args[@]}")
 fi
 
 have_password=false
 PFSENSE_IDENTITY_PASSWORD="${PFSENSE_IDENTITY_PASSWORD:=}"
 if [[ -n "${PFSENSE_IDENTITY_PASSWORD}" ]]; then
-    sshpass_args="${sshpass_args} -p ${PFSENSE_IDENTITY_PASSWORD}"
+    sshpass_args+=( -p "${PFSENSE_IDENTITY_PASSWORD}" )
     have_password=true
 elif [[ -r "${PFSENSE_IDENTITY_PASSWORD_FILE:=/run/secrets/pfsense-identity-password}" ]]; then
     chmod 600 "${PFSENSE_IDENTITY_PASSWORD_FILE}" 2>/dev/null || true
-    sshpass_args="${sshpass_args} -f ${PFSENSE_IDENTITY_PASSWORD_FILE}"
+    sshpass_args+=( -f "${PFSENSE_IDENTITY_PASSWORD_FILE}" )
     have_password=true
 fi
 ${have_password} || error 'need PFSENSE_IDENTITY_PASSWORD or PFSENSE_IDENTITY_PASSWORD_FILE (default: /run/secrets/pfsense-identity-password)'
@@ -107,12 +121,13 @@ openssl_rsa_encrypt=false
 info "begin ${command}"
 
 config_tmp=$(mktemp)
-# shellcheck disable=SC2086
-sshpass ${sshpass_args} ssh ${ssh_args} \
+if ! sshpass "${sshpass_args[@]}" ssh "${ssh_args[@]}" \
     -l "${user}" \
     -i "${identity_file}" \
-    "${host}" > "${config_tmp}" || \
-    (error "configuration download failed" && debug "sshpass ${sshpass_args} ssh ${ssh_args}")
+    "${host}" > "${config_tmp}"; then
+    debug "ssh configuration download failed for user='${user}' host='${host}' identity='${identity_file}'"
+    error "configuration download failed"
+fi
 
 version=$(grep -m1 '<version' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
 [[ -n "${version}" ]] || error 'invalid pfSense configuration file - missing version'

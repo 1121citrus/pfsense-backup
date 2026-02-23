@@ -51,6 +51,17 @@ test_backup_no_compression() {
     _assert_contains "filename targets bucket" "test-bucket"                              "${output}"
 }
 
+test_backup_identity_password_with_spaces() {
+    local output
+    output=$(run_backup \
+        -e "PFSENSE_IDENTITY_PASSWORD=test password with spaces" \
+        -e COMPRESSION=none) || {
+        echo "FAIL '${FUNCNAME[0]}': command exited non-zero"; return 1
+    }
+    _assert_contains "begins and finishes" "begin backup"  "${output}"
+    _assert_contains "finishes cleanly"    "finish backup" "${output}"
+}
+
 test_backup_gz() {
     local output
     output=$(run_backup -e COMPRESSION=gz) || {
@@ -159,6 +170,7 @@ run_tests() {
     local passed=0
     local tests=(
         test_backup_no_compression
+        test_backup_identity_password_with_spaces
         test_backup_gz
         test_backup_gzip_alias
         test_backup_xz

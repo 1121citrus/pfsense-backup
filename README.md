@@ -163,14 +163,14 @@ Variable | Default | Notes
 `HEALTHCHECK_SUCCESS_FILE` | `/tmp/pfsense-backup.last-success` | File touched when backup successfully uploads to S3, used by healthcheck recency validation.
 `PFSENSE_EXTRA_SSH_ARGS` | _none_ | Addition options to add to the `ssh` command.
 `PFSENSE_EXTRA_SSHPASS_ARGS` | _none_ | Addition options to add to the `sshpass` command.
-`PFSENSE_HOST` | `${TAILSCALE_HOST}` | Specify the hostname or IP address of the pfSense firewall. Do not include the final `/`, otherwise backup will fail.
+`PFSENSE_HOST` | _see notes_ | Specify the hostname or IP address of the pfSense firewall. Do not include the final `/`, otherwise backup will fail. If unset, the script falls back to `TAILSCALE_HOST`, then to the first-hop gateway derived from `traceroute`.
 `PFSENSE_IDENTITY_FILE` | `/run/secrets/pfsense-identity` | A file containing the private identity key to access the pfSense system. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
 `PFSENSE_IDENTITY_PASSWORD` | _none_ | The password to unlock the identity file. WARNING: consider using the more secure `PFSENSE_IDENTITY_PASSWORD_FILE`, which might be a bind mount or a compose secret.
 `PFSENSE_IDENTITY_PASSWORD_FILE` | `/run/secrets/pfsense-identity-password` | A file containing the password to unlock the identity file. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
 `PFSENSE_SSH_KNOWN_HOSTS_FILE` | `/root/.ssh/known_hosts` | Known hosts file used by SSH when host-key checking is enabled.
 `PFSENSE_SSH_STRICT_HOST_KEY_CHECKING` | `accept-new` | SSH host-key checking mode (`yes`, `accept-new`, `no`, etc). For best security, use `yes` with a pre-populated known_hosts file.
 `PFSENSE_USER` | `remote-backup` | The username to use to access the pfSense system.
-`TAILSCALE_HOST` | _see notes_ | Specify the hostname or IP address of the pfSense firewall on the Tailscale mesh. Do not include the final `/`, otherwise backup will fail. Defaults to the gateway IP address if it's a private address.
+`TAILSCALE_HOST` | _none_ | Specify the hostname or IP address of the pfSense firewall on the Tailscale mesh. Do not include the final `/`, otherwise backup will fail. Used only when `PFSENSE_HOST` is unset.
 `TZ` | `UTC` | Which timezone should `cron` use, e.g. `America/New_York` or `Europe/Warsaw`. See [full list of available time zones](http://manpages.ubuntu.com/manpages/bionic/man3/DateTime::TimeZone::Catalog.3pm.html).
 
 ## Building
