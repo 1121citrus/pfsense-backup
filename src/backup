@@ -22,6 +22,9 @@ ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
 [[ -r "${ENV}" ]] && source "${ENV}"
 
+# shellcheck disable=SC1090
+source /usr/local/bin/common-functions
+
 HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}"
 
 set -o errexit -o errtrace -o nounset -o pipefail

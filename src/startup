@@ -24,6 +24,9 @@ ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
 [[ -r "${ENV}" ]] && source "${ENV}"
 
+# shellcheck disable=SC1090
+source /usr/local/bin/common-functions
+
 # Write cronjob env to file, fill in sensible defaults, and read them back in
 cat <<EOF >"${ENV}"
 export AWS_CONFIG_FILE='${AWS_CONFIG_FILE:-/run/secrets/aws-config}'

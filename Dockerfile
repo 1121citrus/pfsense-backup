@@ -17,8 +17,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-ARG HA_BASH_BASE_TAG=1.1.1
-FROM 1121citrus/ha-bash-base:${HA_BASH_BASE_TAG}
+ARG ALPINE_TAG=3.21
+FROM alpine:${ALPINE_TAG}
 
 # Download pfmotion_wget.sh and convert it to using environment variables and
 # docker secrets
@@ -27,24 +27,21 @@ RUN set -Eeux; \
     apk upgrade --no-cache --no-interactive && \
     apk add --no-cache --no-interactive --upgrade \
         aws-cli>2.27 \
+        bash>5.2 \
         bzip2>1.0 \
         bzip3>1.5 \
         gnupg>2.4 \
-        libxml2>2.13.9 \
         gzip>1.14 \
         lzop>1.04 \
         openssh>10.0 \
-        openssl>3.5 \
-        pcre2>10.46 \
-        php83>8.3.29 \
-        php83-common>8.3.29 \
+        openssl>3.3 \
         pigz>2.8 \
         pixz>1.0 \
         sshpass>1.10 \
-        xz>5.8 \
+        xz>5.6 \
         zip>3.0 \
         && \
-    mkdir -pv -m 700 /root/.{gnupg,ssh} && \
+    mkdir -pv -m 700 /root/.gnupg /root/.ssh && \
     touch /root/.gnupg/pubring.kbx && \
     chmod 600 /root/.gnupg/pubring.kbx && \
     rm -fv /usr/local/bin/docker /usr/bin/docker /bin/docker || true && \
@@ -53,7 +50,7 @@ RUN set -Eeux; \
     true
 
 COPY --chmod=755 ./src/startup /usr/local/1121citrus/bin
-COPY --chmod=755 ./src/healthcheck ./src/backup /usr/local/bin/
+COPY --chmod=755 ./src/healthcheck ./src/backup ./src/common-functions /usr/local/bin/
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD /usr/local/bin/healthcheck
 

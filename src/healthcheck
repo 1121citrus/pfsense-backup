@@ -20,6 +20,9 @@
 ENV=${ENV:-${HOME:-/root}/.env}
 [[ -r "${ENV}" ]] && source "${ENV}"
 
+# shellcheck disable=SC1090
+source /usr/local/bin/common-functions
+
 set -o errexit -o errtrace -o nounset -o pipefail
 set +o xtrace +o verbose
 is_true "${DEBUG:-false}" && set -o xtrace -o verbose
