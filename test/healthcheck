@@ -21,6 +21,7 @@ setup() {
         # $1: shell -c script to run inside the container
         # remaining args: extra docker run flags
         local script=$1; shift
+        # shellcheck disable=SC2086  # DOCKER_RUN_ARGS is intentionally word-split
         docker run -i --rm ${DOCKER_RUN_ARGS:-} \
             --entrypoint /bin/bash \
             "$@" \
@@ -175,7 +176,7 @@ run_tests() {
     echo "================================="
 
     for test in "${tests[@]}"; do
-        "${test}" && ((passed++)) || :
+        if "${test}"; then (( passed += 1 )) || true; fi
     done
 
     local failed=$(( ${#tests[@]} - passed ))

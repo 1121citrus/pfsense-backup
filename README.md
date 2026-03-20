@@ -7,27 +7,31 @@ An application specific service to create [pfSense](https://docs.netgate.com/pfs
 - [Contents](#contents)
 - [Synopsis](#synopsis)
 - [Overview](#overview)
+- [Example: one-shot download (CLI)](#example-one-shot-download-cli)
+- [Example: one-shot backup to S3](#example-one-shot-backup-to-s3)
 - [Example: backup periodically as cron job](#example-backup-periodically-as-cron-job)
-  - [Example Log Output](#example-log-output)
-- [Example: Run "One Off" Backup](#example-run-one-off-backup)
+  - [Example log output](#example-log-output)
 - [Example: Docker compose file](#example-docker-compose-file)
 - [Configuration](#configuration)
-- [Health Check](#health-check)
+- [Health check](#health-check)
 - [Security](#security)
 - [Building](#building)
 - [Testing](#testing)
-- [Attributions and Provenance](#attributions-and-provenance)
+- [Attributions and provenance](#attributions-and-provenance)
 
 ## Synopsis
 
-- Periodically backup the [pfSense](https://docs.netgate.com/pfsense/en/latest/) router to off site storage (S3).
+- Download the [pfSense](https://docs.netgate.com/pfsense/en/latest/) router configuration directly to stdout.
+- Periodically backup the configuration to off-site storage (S3).
 - Backup files are renamed so they sort by date.
 - Credentials are supplied by a compose
 [secret](https://docs.docker.com/compose/how-tos/use-secrets/).
 
 ## Overview
 
-This service will periodically fetch a [pfSense](https://docs.netgate.com/pfsense/en/latest/) firewall configuration and transfer it to AWS.
+The primary use case is `pfsense-backup` as a CLI: run it directly and
+redirect stdout to a file.  Backup to S3 on a schedule is supported via
+the legacy `backup` service wrapper and `startup` entrypoint.
 
 You must separately provision and deploy:
 
@@ -44,7 +48,63 @@ configuration file. The default name is 'remote-backup'.
   restrict,pty,command="cat /cf/conf/config.xml" ssh-ed25519 AAAAC3NzaC1lZDI1MTE5AAAAIFcn7Vcaxi8rQw0/Aw7ZMFfD9h6vOzTXUd/insHick2o remote-backup
   ```
 
+## Example: one-shot download (CLI)
+
+Download the pfSense configuration directly to a file:
+
+```console
+$ docker run --rm \
+      -e PFSENSE_HOST=firewall \
+      -v ~/.ssh/firewall-remote-backup.ed25519:/run/secrets/pfsense-identity:ro \
+      -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
+      1121citrus/pfsense-backup pfsense-backup > config.xml
+[INFO] 20250916T163601 pfsense-backup begin pfsense-backup
+[INFO] 20250916T163604 pfsense-backup streaming config: 20250916T163604-firewall-pfsense-v24.11-config-backup.xml
+[INFO] 20250916T163604 pfsense-backup finish pfsense-backup
+```
+
+Use `pfsense-backup --help` to see all available options:
+
+```console
+$ docker run --rm 1121citrus/pfsense-backup pfsense-backup --help
+Usage: pfsense-backup [options]
+
+Download a pfSense firewall configuration to stdout.
+
+Options:
+  -?,--help              Display this help text
+  -v,--version           Display command version
+  -H,--host HOST         pfSense hostname or IP
+  ...
+```
+
+## Example: one-shot backup to S3
+
+Add the `backup` command to run a single backup directly to S3:
+
+```console
+$ docker run -i --rm \
+      -e AWS_S3_BUCKET_NAME=backups-bucket \
+      -e PFSENSE_HOST=firewall \
+      -v ./secrets/aws-config:/run/secrets/aws-config:ro \
+      -v ~/.ssh/firewall-remote-backup.ed25519:/run/secrets/pfsense-identity:ro \
+      -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
+      -v /etc/localtime:/etc/localtime:ro \
+      1121citrus/pfsense-backup backup
+[INFO] 20250915T013601 backup begin backup
+[INFO] 20250915T013601 pfsense-backup begin pfsense-backup
+[INFO] 20250915T013604 pfsense-backup streaming config: 20250915T013604-firewall-pfsense-v24.0-config-backup.xml
+[INFO] 20250915T013604 pfsense-backup finish pfsense-backup
+[INFO] 20250915T013604 backup downloaded '20250915T013604-firewall-pfsense-v24.0-config-backup.xml'
+[INFO] 20250915T013604 backup begin mv '20250915T013604-firewall-pfsense-v24.0-config-backup.xml' to S3 bucket 'backups-bucket'
+[INFO] 20250915T013606 backup move: ./20250915T013604-firewall-pfsense-v24.0-config-backup.xml to s3://backups-bucket/20250915T013604-firewall-pfsense-v24.0-config-backup.xml
+[INFO] 20250915T013606 backup completed aws s3 mv ...
+[INFO] 20250915T013606 backup finish backup
+```
+
 ## Example: backup periodically as cron job
+
+Run without a command to start the service (cron) mode:
 
 ```console
 $ docker run -i --rm \
@@ -58,7 +118,7 @@ $ docker run -i --rm \
       1121citrus/pfsense-backup
 ```
 
-### Example Log Output
+### Example log output
 
 ```console
 [INFO] 20250916T163325 startup create env file /root/.env
@@ -86,36 +146,17 @@ $ docker run -i --rm \
    .
    .
 [INFO] 20250916T164500 backup begin backup
+[INFO] 20250916T164500 pfsense-backup begin pfsense-backup
+[INFO] 20250916T164502 pfsense-backup streaming config: 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml
+[INFO] 20250916T164502 pfsense-backup finish pfsense-backup
 [INFO] 20250916T164502 backup compressing backup with lzma/xz --compress --extreme --quiet: 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz
 [INFO] 20250916T164502 backup encrypting backup with GPG
 [INFO] 20250916T164503 backup downloaded '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml' to '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg'
 [INFO] 20250916T164503 backup begin mv '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg' to S3 bucket 'backups-bucket'
 [INFO] 20250916T164503 backup running aws s3 mv --no-progress 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
 [INFO] 20250916T164504 backup move: ./20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg to s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
-[INFO] 20250916T164504 backup completed aws s3 mv --no-progress 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
+[INFO] 20250916T164504 backup completed aws s3 mv --no-progress ...
 [INFO] 20250916T164504 backup finish backup
-```
-
-## Example: Run "One Off" Backup
-
-Add the `backup` command to the `docker run` command to create a single backup.
-
-```console
-$ docker run -i --rm \
-      -e AWS_S3_BUCKET_NAME=backups-bucket \
-      -e PFSENSE_HOST=firewall \
-      -v ./secrets/aws-config:/run/secrets/aws-config:ro \
-      -v ~/.ssh/firewall-remote-backup.ed25519:/run/secrets/pfsense-identity:ro \
-      -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
-      -v /etc/localtime:/etc/localtime:ro \
-      1121citrus/pfsense-backup backup
-[INFO] 20250915T013601 backup begin backup
-[INFO] 20250915T013604 backup downloaded '20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml'
-[INFO] 20250915T013604 backup begin mv '20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml' to S3 bucket 'backups-bucket'
-[INFO] 20250915T013604 backup running aws s3 mv --no-progress 20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml s3://backups-bucket/20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml
-[INFO] 20250915T013606 backup move: ./20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml to s3://backups-bucket/20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml
-[INFO] 20250915T013606 backup completed aws s3 mv --no-progress 20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml s3://backups-bucket/20250915T013604-firewall-1-pfsense-v24.0-config-backup.xml
-[INFO] 20250915T013606 backup finish backup
 ```
 
 ## Example: Docker compose file
@@ -149,6 +190,20 @@ secrets:
 
 ## Configuration
 
+### `pfsense-backup` CLI options
+
+Option | Env var | Default | Notes
+--- | --- | --- | ---
+`-H,--host HOST` | `PFSENSE_HOST` | _(see notes)_ | pfSense hostname or IP. Falls back to `TAILSCALE_HOST`, then first-hop gateway from `traceroute`.
+`-u,--user USER` | `PFSENSE_USER` | `remote-backup` | SSH username.
+`-i,--identity-file FILE` | `PFSENSE_IDENTITY_FILE` | `/run/secrets/pfsense-identity` | Private key file.
+`-p,--password PW` | `PFSENSE_IDENTITY_PASSWORD` | _(none)_ | Key passphrase. **WARNING: visible in process table — prefer `--password-file`.**
+`-P,--password-file FILE` | `PFSENSE_IDENTITY_PASSWORD_FILE` | `/run/secrets/pfsense-identity-password` | File containing the key passphrase.
+`--strict-host-key-checking MODE` | `PFSENSE_SSH_STRICT_HOST_KEY_CHECKING` | `accept-new` | SSH host-key checking mode (`yes`, `accept-new`, `no`).
+`--known-hosts FILE` | `PFSENSE_SSH_KNOWN_HOSTS_FILE` | `/root/.ssh/known_hosts` | Known hosts file.
+
+### Service-mode environment variables
+
 Variable | Default | Notes
 --- | --- | ---
 `AWS_CONFIG_FILE` | `/run/secrets/aws-config` | The externally provided AWS configuration file containing credentials, etc. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
@@ -166,17 +221,10 @@ Variable | Default | Notes
 `HEALTHCHECK_SUCCESS_FILE` | `/tmp/pfsense-backup.last-success` | File touched when backup successfully uploads to S3, used by healthcheck recency validation.
 `PFSENSE_EXTRA_SSH_ARGS` | _none_ | Additional options to add to the `ssh` command.
 `PFSENSE_EXTRA_SSHPASS_ARGS` | _none_ | Additional options to add to the `sshpass` command.
-`PFSENSE_HOST` | _see notes_ | Specify the hostname or IP address of the pfSense firewall. Do not include the final `/`, otherwise backup will fail. If unset, the script falls back to `TAILSCALE_HOST`, then to the first-hop gateway derived from `traceroute`.
-`PFSENSE_IDENTITY_FILE` | `/run/secrets/pfsense-identity` | A file containing the private identity key to access the pfSense system. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
-`PFSENSE_IDENTITY_PASSWORD` | _none_ | The password to unlock the identity file. **WARNING: consider using the more secure `PFSENSE_IDENTITY_PASSWORD_FILE`**, which might be a bind mount or a compose secret. When set via environment variable, the password is briefly visible in `/proc/<pid>/cmdline`.
-`PFSENSE_IDENTITY_PASSWORD_FILE` | `/run/secrets/pfsense-identity-password` | A file containing the password to unlock the identity file. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
-`PFSENSE_SSH_KNOWN_HOSTS_FILE` | `/root/.ssh/known_hosts` | Known hosts file used by SSH when host-key checking is enabled.
-`PFSENSE_SSH_STRICT_HOST_KEY_CHECKING` | `accept-new` | SSH host-key checking mode (`yes`, `accept-new`, `no`). **For best security use `yes` with a pre-populated known_hosts file** — the default `accept-new` is vulnerable to machine-in-the-middle on the first connection.
-`PFSENSE_USER` | `remote-backup` | The username to use to access the pfSense system.
 `TAILSCALE_HOST` | _none_ | Specify the hostname or IP address of the pfSense firewall on the Tailscale mesh. Do not include the final `/`, otherwise backup will fail. Used only when `PFSENSE_HOST` is unset.
 `TZ` | `UTC` | Which timezone should `cron` use, e.g. `America/New_York` or `Europe/Warsaw`. See [full list of available time zones](http://manpages.ubuntu.com/manpages/bionic/man3/DateTime::TimeZone::Catalog.3pm.html).
 
-## Health Check
+## Health check
 
 The container exposes a Docker HEALTHCHECK that validates three things every
 30 seconds:
@@ -210,8 +258,8 @@ Key points:
   `authorized_keys` so the key can only read the config file.
 - **Use Docker secrets** (file mounts) rather than environment variables for
   all credentials.
-- **Use `PFSENSE_SSH_STRICT_HOST_KEY_CHECKING=yes`** with a pre-populated
-  known-hosts file for production deployments.
+- **Use `--strict-host-key-checking yes`** (or `PFSENSE_SSH_STRICT_HOST_KEY_CHECKING=yes`)
+  with a pre-populated known-hosts file for production deployments.
 - **Never set `DEBUG=true` in production** — shell trace mode exposes
   credentials in container logs.
 
@@ -245,6 +293,7 @@ Tests require a built Docker image tagged `1121citrus/pfsense-backup:latest`.
 ./test/run-all
 
 # Run an individual suite
+./test/pfsense-backup
 ./test/backup-success
 ./test/backup-encryption
 ./test/backup-xml-validation
@@ -258,7 +307,7 @@ IMAGE=1121citrus/pfsense-backup:1.2.3 ./test/run-all
 Tests use lightweight stub binaries in `test/bin/` that shadow the real
 `ssh`, `sshpass`, `aws`, and `traceroute` commands inside the container.
 
-## Attributions and Provenance
+## Attributions and provenance
 
 Component | Source | License
 --- | --- | ---

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# An application specific service to create pfSense backups and copy them off site.
+# Service wrapper: calls pfsense-backup, post-processes, and uploads to S3.
 #
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
 #
@@ -8,16 +8,18 @@
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# ~/.env is how the startup encodes arguments to be accessed by this command in cron job
+# crond runs jobs with a minimal environment.  startup writes all runtime
+# configuration to ~/.env; each job sources it here to restore the full
+# variable set.  See src/startup for the write side of this pattern.
 ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
 [[ -r "${ENV}" ]] && source "${ENV}"
@@ -33,9 +35,9 @@ is_true "${DEBUG:=false}" && set -o xtrace -o verbose
 
 command=$(basename "${0}")
 
-# Create a work directory -- to cleanup any debris
+# Create a work directory -- to cleanup any debris.
 workdir=$(mktemp -d)
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317  # invoked indirectly via trap EXIT
 cleanup() {
     rm -rf "${workdir}" >/dev/null 2>&1 || true
 }
@@ -47,68 +49,10 @@ export AWS_CONFIG_FILE="${AWS_CONFIG_FILE:=/run/secrets/aws-config}"
 bucket="${AWS_S3_BUCKET_NAME:=}"
 [[ -n "${bucket}" ]] || error 'need AWS_S3_BUCKET_NAME'
 dryrun="${AWS_DRYRUN:=false}"
-# pfSense host OR IP (note: do not include the final /, otherwise backup will fail)
-internal_gateway=$(traceroute -m 1 1.1.1.1 2>/dev/null | head -1 | sed -E 's/.* [(]([^)]*)[)].*/\1/' || true)
-host="${PFSENSE_HOST:-${TAILSCALE_HOST:-${internal_gateway}}}"
-[[ -n "${host}" ]] || error 'need PFSENSE_HOST or TAILSCALE_HOST'
-identity_file="${PFSENSE_IDENTITY_FILE:=/run/secrets/pfsense-identity}"
-[[ -n "${identity_file}" ]] || error 'need PFSENSE_IDENTITY_FILE (default: /run/secrets/pfsense-identity)'
-[[ -r "${identity_file}" ]] || error "${identity_file} not found or is not readable"
-# Restrict key file permissions.  Warn rather than fail: Docker secrets are
-# mounted read-only (0400 root:root) so chmod succeeds on a rw bind-mount but
-# may fail on a read-only mount — both are acceptable.
-chmod 600 "${identity_file}" 2>/dev/null || \
-    debug "unable to set permissions on '${identity_file}' (read-only mount?)"
-user="${PFSENSE_USER:=remote-backup}"
 
-# don't use ssh config file; no pty 
-strict_host_key_checking="${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:=accept-new}"
-known_hosts_file="${PFSENSE_SSH_KNOWN_HOSTS_FILE:=/root/.ssh/known_hosts}"
-if [[ "${strict_host_key_checking}" == "no" ]]; then
-    known_hosts_arg="UserKnownHostsFile=/dev/null"
-else
-    touch "${known_hosts_file}"
-    chmod 600 "${known_hosts_file}" 2>/dev/null || \
-        debug "unable to set permissions on '${known_hosts_file}'"
-    known_hosts_arg="UserKnownHostsFile=${known_hosts_file}"
-fi
-ssh_args=(
-    -F /dev/null
-    -T
-    -o LogLevel=quiet
-    -o "StrictHostKeyChecking=${strict_host_key_checking}"
-    -o "${known_hosts_arg}"
-)
-if [[ -n "${PFSENSE_EXTRA_SSH_ARGS:-}" ]]; then
-    read -r -a ssh_extra_args <<< "${PFSENSE_EXTRA_SSH_ARGS}"
-    ssh_args+=("${ssh_extra_args[@]}")
-fi
-sshpass_args=(-P passphrase)
-if [[ -n "${PFSENSE_EXTRA_SSHPASS_ARGS:=}" ]]; then
-    read -r -a sshpass_extra_args <<< "${PFSENSE_EXTRA_SSHPASS_ARGS}"
-    sshpass_args+=("${sshpass_extra_args[@]}")
-fi
-if is_true "${DEBUG}"; then
-    ssh_args=(-v "${ssh_args[@]}")
-    sshpass_args=(-v "${sshpass_args[@]}")
-fi
-
-have_password=false
-PFSENSE_IDENTITY_PASSWORD="${PFSENSE_IDENTITY_PASSWORD:=}"
-if [[ -n "${PFSENSE_IDENTITY_PASSWORD}" ]]; then
-    # NOTE: -p passes the passphrase as a command-line argument, which is
-    # briefly visible in /proc/<pid>/cmdline while sshpass is running.
-    # Prefer PFSENSE_IDENTITY_PASSWORD_FILE (Docker secret) for production use.
-    sshpass_args+=( -p "${PFSENSE_IDENTITY_PASSWORD}" )
-    have_password=true
-elif [[ -r "${PFSENSE_IDENTITY_PASSWORD_FILE:=/run/secrets/pfsense-identity-password}" ]]; then
-    chmod 600 "${PFSENSE_IDENTITY_PASSWORD_FILE}" 2>/dev/null || \
-        debug "unable to set permissions on '${PFSENSE_IDENTITY_PASSWORD_FILE}' (read-only mount?)"
-    sshpass_args+=( -f "${PFSENSE_IDENTITY_PASSWORD_FILE}" )
-    have_password=true
-fi
-${have_password} || error 'need PFSENSE_IDENTITY_PASSWORD or PFSENSE_IDENTITY_PASSWORD_FILE (default: /run/secrets/pfsense-identity-password)'
-
+# Encryption is optional.  GPG symmetric encryption is selected when either
+# GPG_PASSPHRASE (env var) or GPG_PASSPHRASE_FILE (Docker secret) is present.
+# gpg_encrypt holds 'true'/'false' as commands; see pfsense-backup: have_password.
 gpg_encrypt=false
 gpg_args=(--symmetric --cipher-algo "${GPG_CIPHER_ALGO:=aes256}" --batch)
 if [[ -n "${GPG_PASSPHRASE:=}" ]]; then
@@ -133,48 +77,39 @@ openssl_rsa_encrypt=false
 
 info "begin ${command}"
 
-config_tmp=$(mktemp)
-if ! sshpass "${sshpass_args[@]}" ssh "${ssh_args[@]}" \
-    -l "${user}" \
-    -i "${identity_file}" \
-    "${host}" > "${config_tmp}"; then
-    debug "ssh configuration download failed for user='${user}' host='${host}'"
-    error "configuration download failed"
-fi
+# pfsense-backup derives the filename from hostname and firmware version,
+# which are not known until the SSH session completes.
+# PFSENSE_BACKUP_NAME_FILE is a sidecar path: pfsense-backup writes the
+# computed base filename there so this script can name the output file
+# without re-parsing the XML.
+name_file="${workdir}/.backup-name"
+PFSENSE_BACKUP_NAME_FILE="${name_file}" \
+    pfsense-backup > "${workdir}/config.xml.tmp" || \
+    error "pfsense-backup failed"
+backup_file=$(cat "${name_file}")
 
-version=$(grep -m1 '<version' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
-[[ -n "${version}" ]] || error 'invalid pfSense configuration file - missing version'
-hostname=$(grep -m1 '<hostname' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
-[[ -n "${hostname}" ]] || error 'invalid pfSense configuration file - missing hostname'
-domain=$(grep -m1 '<domain' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
-[[ -n "${domain}" ]] || error 'invalid pfSense configuration file - missing domain'
-# Sanitize values extracted from XML before embedding them in the filename.
-# Allow only alphanumeric characters, hyphens, underscores, and dots.  Any
-# other character (including path separators) is replaced with a hyphen.  This
-# prevents directory traversal and filename-injection via a crafted config file.
-hostname="${hostname//[^a-zA-Z0-9._-]/-}"
-version="${version//[^a-zA-Z0-9._-]/-}"
-backup_file="$(date +%Y%m%dT%H%M%S)-${hostname}-pfsense-v${version}-config-backup.xml"
-
-# Add header to pulled XML file
+# Add header comment to the downloaded XML file.  tail -n +2 skips the
+# original <?xml?> declaration so the updated declaration takes its place.
 (echo '<?xml version="1.0" encoding="UTF-8"?>' && \
  echo "<!-- ${backup_file} -->" && \
- tail -n +2 "${config_tmp}") > "${backup_file}"
+ tail -n +2 "${workdir}/config.xml.tmp") > "${backup_file}"
 output_file="${backup_file}"
 
+# All compression is stdin→stdout to avoid creating an extra copy of the
+# (potentially large) XML file in the workdir alongside the compressed output.
 case "${COMPRESSION:=none}" in
     bzip | bzip2)
         info "compressing backup with bzip2: ${output_file}.bz2"
         bzip2 -9 --keep --quiet --stdout  <"${output_file}" >"${output_file}.bz2"
         output_file="${output_file}.bz2"
         ;;
- 
+
     bzip3)
         info "compressing backup with bzip3: ${output_file}.bz3"
         bzip3 --batch --keep --stdout "${output_file}" >"${output_file}.bz3"
         output_file="${output_file}.bz3"
         ;;
- 
+
     gz | gzip)
         info "compressing backup with gzip --best --no-name --quiet --synchronous: ${output_file}.gz"
         gzip --best --no-name --quiet --synchronous <"${output_file}" >"${output_file}.gz"
@@ -245,9 +180,11 @@ is_true "${dryrun}" && awsargs+=(--dryrun)
 info "begin mv '${output_file}' to S3 bucket '${bucket}'"
 uri="s3://${bucket}/${output_file}"
 info "running aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
-# Pipe aws output through info for structured logging.  With set -o pipefail a
-# non-zero aws exit propagates through the pipeline; the || branch fires only on
-# failure and provides a clear error message before the script exits.
+# aws s3 mv uploads the file then deletes the local copy on success, which
+# prevents archives from accumulating in the workdir across cron runs.
+# Pipe aws output through info for structured logging.  With set -o pipefail
+# a non-zero aws exit propagates through the pipeline; the || branch fires
+# only on failure and provides a clear error message before the script exits.
 # IMPORTANT: touch the healthcheck marker only after a confirmed successful
 # upload — never before, never on failure.
 aws s3 mv "${awsargs[@]}" "${output_file}" "${uri}" 2>&1 | info || \
@@ -256,4 +193,3 @@ info "completed aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
 touch "${HEALTHCHECK_SUCCESS_FILE}" 2>/dev/null || true
 info "finish ${command}"
 exit 0
-

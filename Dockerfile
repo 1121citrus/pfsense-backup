@@ -20,6 +20,8 @@
 ARG ALPINE_TAG=3.21
 FROM alpine:${ALPINE_TAG}
 
+ARG VERSION=dev
+
 # OCI image annotations (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
 # These are embedded in the image manifest and surfaced by `docker inspect`,
 # `docker buildx imagetools inspect`, and registry UIs.
@@ -31,37 +33,50 @@ LABEL org.opencontainers.image.title="pfsense-backup" \
       org.opencontainers.image.authors="James Hanlon <jim@hanlonsoftware.com>" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
-# Install dependencies and configure the container environment
-RUN set -Eeux; \
+# Install dependencies and configure the container environment.
+# DL3018: version constraints use '>' (minimum) rather than '=' (exact) by
+# design — apk does not have a lock-file mechanism and exact pins would break
+# on every Alpine point release.
+# hadolint ignore=DL3018
+RUN set -eux; \
     apk update && \
     apk upgrade --no-cache --no-interactive && \
     apk add --no-cache --no-interactive --upgrade \
-        aws-cli>2.27 \
-        bash>5.2 \
-        bzip2>1.0 \
-        bzip3>1.5 \
-        gnupg>2.4 \
-        gzip>1.14 \
-        lzop>1.04 \
-        openssh>10.0 \
-        openssl>3.3 \
-        pigz>2.8 \
-        pixz>1.0 \
-        sshpass>1.10 \
-        traceroute>2.1 \
-        xz>5.6 \
-        zip>3.0 \
+        'aws-cli>2.20' \
+        'bash>5.2' \
+        'bzip2>1.0' \
+        'bzip3>1.3' \
+        'gnupg>2.4' \
+        'gzip>1.12' \
+        'lzop>1.04' \
+        'openssh>9' \
+        'openssl>3.3' \
+        'pigz>2.8' \
+        'pixz>1.0' \
+        'sshpass>1.10' \
+        'traceroute>2.1' \
+        'xz>5.6' \
+        'zip>3.0' \
         && \
-    mkdir -pv -m 700 /root/.gnupg /root/.ssh && \
+    mkdir -pv /root/.gnupg /root/.ssh && \
+    chmod 700 /root/.gnupg /root/.ssh && \
     touch /root/.gnupg/pubring.kbx && \
     chmod 600 /root/.gnupg/pubring.kbx && \
     rm -fv /usr/local/bin/docker /usr/bin/docker /bin/docker || true && \
     ln -sfv /run/secrets/pfsense-identity /root/.ssh/pfsense-identity && \
-    mkdir --parents --verbose --mode 755 /usr/local/1121citrus/bin && \
+    mkdir --parents --verbose /usr/local/1121citrus/bin && \
+    chmod 755 /usr/local/1121citrus/bin && \
+    mkdir --parents /usr/local/share/pfsense-backup && \
+    printf '%s\n' "${VERSION}" > /usr/local/share/pfsense-backup/version && \
     true
 
 COPY --chmod=755 ./src/startup /usr/local/1121citrus/bin
-COPY --chmod=755 ./src/healthcheck ./src/backup ./src/common-functions /usr/local/bin/
+COPY --chmod=755 \
+    ./src/backup \
+    ./src/common-functions \
+    ./src/healthcheck \
+    ./src/pfsense-backup \
+    /usr/local/bin/
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD /usr/local/bin/healthcheck
 
