@@ -10,9 +10,12 @@ set -euo pipefail
 whereami=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 
 status=0
+"${whereami}/build-options"        || status=1
+"${whereami}/pfsense-backup"        || status=1
 "${whereami}/backup-required-vars"  || status=1
 "${whereami}/backup-success"        || status=1
 "${whereami}/backup-encryption"     || status=1
 "${whereami}/backup-xml-validation" || status=1
+"${whereami}/backup-aws-failure"    || status=1
 "${whereami}/healthcheck"           || status=1
 exit $status

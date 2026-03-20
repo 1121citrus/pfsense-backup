@@ -21,6 +21,7 @@ setup() {
         # $1: shell -c script to run inside the container
         # remaining args: extra docker run flags
         local script=$1; shift
+        # shellcheck disable=SC2086  # DOCKER_RUN_ARGS is intentionally word-split
         docker run -i --rm ${DOCKER_RUN_ARGS:-} \
             --entrypoint /bin/bash \
             "$@" \
@@ -119,6 +120,29 @@ test_healthcheck_startup_grace_expired() {
     fi
 }
 
+test_healthcheck_stale_backup_within_startup_grace() {
+    # Regression test for the healthcheck race condition fix.
+    #
+    # Simulates a container restart scenario: a stale success marker exists
+    # (e.g. from a previous container run on a persistent volume) BUT the
+    # startup file is fresh and we are still within the grace window.
+    # The healthcheck must return healthy (exit 0) in this case — the old
+    # code errored immediately on the stale marker without ever checking grace.
+    run_healthcheck \
+        "${CROND_START} && ${CRONTAB_SETUP} && touch /tmp/hc-stale-success && touch /tmp/hc-started && /usr/local/bin/healthcheck" \
+        -e HEALTHCHECK_SUCCESS_FILE=/tmp/hc-stale-success \
+        -e HEALTHCHECK_STARTUP_FILE=/tmp/hc-started \
+        -e HEALTHCHECK_MAX_AGE_SECONDS=-1 \
+        -e HEALTHCHECK_STARTUP_GRACE_SECONDS=300 \
+        && result=0 || result=$?
+    if [[ ${result} -eq 0 ]]; then
+        echo "PASS '${FUNCNAME[0]}': exits 0 when backup is stale but startup grace is active (restart scenario)"
+    else
+        echo "FAIL '${FUNCNAME[0]}': expected exit 0 — startup grace should override stale backup marker"
+        return 1
+    fi
+}
+
 test_healthcheck_no_markers() {
     run_healthcheck \
         "${CROND_START} && ${CRONTAB_SETUP} && /usr/local/bin/healthcheck" \
@@ -142,6 +166,7 @@ run_tests() {
         test_healthcheck_stale_backup
         test_healthcheck_within_startup_grace
         test_healthcheck_startup_grace_expired
+        test_healthcheck_stale_backup_within_startup_grace
         test_healthcheck_no_markers
     )
 
@@ -151,7 +176,7 @@ run_tests() {
     echo "================================="
 
     for test in "${tests[@]}"; do
-        "${test}" && ((passed++)) || :
+        if "${test}"; then (( passed += 1 )) || true; fi
     done
 
     local failed=$(( ${#tests[@]} - passed ))

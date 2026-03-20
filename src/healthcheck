@@ -33,6 +33,10 @@ HEALTHCHECK_MAX_AGE_SECONDS="${HEALTHCHECK_MAX_AGE_SECONDS:-172800}"
 HEALTHCHECK_STARTUP_GRACE_SECONDS="${HEALTHCHECK_STARTUP_GRACE_SECONDS:-900}"
 
 function epoch_modified() {
+    # Return the file's modification time as seconds since epoch.
+    # GNU stat (Linux/Alpine) uses -c %Y; BSD stat (macOS) uses -f %m.
+    # Trying GNU first and falling back to BSD makes the script portable
+    # across both container and macOS development environments.
     local file=$1
     stat -c %Y "${file}" 2>/dev/null || stat -f %m "${file}"
 }
@@ -41,31 +45,52 @@ function has_cronjob_run() {
     local now
     now=$(date +%s)
 
+    # Both markers are evaluated independently before any error is emitted.
+    # This is essential for the container-restart case: a stale success marker
+    # may survive on a persistent volume, but the startup file is fresh.
+    # Checking grace independently of success prevents an immediate unhealthy
+    # result during the grace window, which would otherwise cause Docker to
+    # restart the container unnecessarily.
+    local fresh_backup=false within_grace=false backup_age='' uptime=''
+
     if [[ -f "${HEALTHCHECK_SUCCESS_FILE}" ]]; then
         local last_success
-        local age
         last_success=$(epoch_modified "${HEALTHCHECK_SUCCESS_FILE}")
-        age=$((now - last_success))
-        (( age <= HEALTHCHECK_MAX_AGE_SECONDS )) && return 0
-        error "latest successful backup is too old: ${age}s > ${HEALTHCHECK_MAX_AGE_SECONDS}s"
+        backup_age=$((now - last_success))
+        (( backup_age <= HEALTHCHECK_MAX_AGE_SECONDS )) && fresh_backup=true
     fi
 
     if [[ -f "${HEALTHCHECK_STARTUP_FILE}" ]]; then
         local started_at
-        local uptime
         started_at=$(epoch_modified "${HEALTHCHECK_STARTUP_FILE}")
         uptime=$((now - started_at))
-        (( uptime <= HEALTHCHECK_STARTUP_GRACE_SECONDS )) && return 0
-        error "no successful backup marker yet and startup grace exceeded: ${uptime}s > ${HEALTHCHECK_STARTUP_GRACE_SECONDS}s"
+        (( uptime <= HEALTHCHECK_STARTUP_GRACE_SECONDS )) && within_grace=true
     fi
 
+    # A fresh backup is always healthy.
+    "${fresh_backup}" && return 0
+
+    # No fresh backup, but still within the startup grace window is healthy.
+    # Handles a container restart where the previous success marker is stale
+    # but not enough time has elapsed for a new backup to run.
+    "${within_grace}" && return 0
+
+    # Unhealthy — emit the most actionable error available.
+    if [[ -n "${backup_age}" ]]; then
+        error "latest successful backup is too old: ${backup_age}s > ${HEALTHCHECK_MAX_AGE_SECONDS}s"
+    fi
+    if [[ -n "${uptime}" ]]; then
+        error "startup grace period exceeded (${uptime}s > ${HEALTHCHECK_STARTUP_GRACE_SECONDS}s) with no successful backup"
+    fi
     error "missing both startup and successful backup markers"
 }
 
 function is_crond_running() {
+    # pidof is provided by busybox on Alpine; pgrep -x (procps) is the
+    # fallback for images where pidof is absent or restricted.
     if pidof crond >/dev/null 2>&1; then
         return 0
-    elif ps aux | grep -Eq '[c]rond( |$)'; then
+    elif pgrep -x crond >/dev/null 2>&1; then
         return 0
     else
         error crond is not running
@@ -73,6 +98,9 @@ function is_crond_running() {
 }
 
 function is_crontab_configured() {
+    # Check that the crontab file exists and contains the expected backup
+    # entry.  An empty or missing file (e.g. startup failed mid-way) is
+    # treated as unconfigured.
     if [[ -r /var/spool/cron/crontabs/root ]] && grep -q ' /usr/local/bin/backup 2>&1' /var/spool/cron/crontabs/root; then
         return 0
     else

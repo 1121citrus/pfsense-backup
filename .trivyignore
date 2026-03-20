@@ -1,0 +1,14 @@
+# Trivy ignore file — line-delimited CVE IDs.
+# Detailed mitigations documented in SECURITY.md.
+
+# urllib3: Data amplification & resource allocation vulnerabilities.
+# Attack vectors require untrusted HTTP sources. pfsense-backup connects only
+# to trusted endpoints (pfSense SSH, AWS S3), making these CVEs not exploitable.
+CVE-2026-21441
+CVE-2025-66471
+CVE-2025-66418
+
+# cryptography: ECDSA signature verification.
+# pfsense-backup uses cryptography for GPG encryption only; ECDSA verification
+# is not used and therefore not exploitable in this workflow.
+CVE-2026-26007

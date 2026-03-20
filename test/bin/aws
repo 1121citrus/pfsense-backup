@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 
-# aws stub: simulate successful S3 operations.
+# aws stub: simulate S3 operations for unit tests.
 #
-# Outputs a "move:" line matching the real aws s3 mv format so that the
-# backup script's output-comparison assertions can match against it.
+# Normal mode (AWS_EXIT_CODE unset or 0):
+#   Outputs a "move:" line matching the real aws s3 mv format so that the
+#   backup script's output-comparison assertions can match against it, then
+#   exits 0.
+#
+# Failure mode (AWS_EXIT_CODE set to a non-zero value):
+#   Outputs an error message to stderr and exits with that code.  Used by
+#   test/backup-aws-failure to verify that the backup script correctly detects
+#   upload failures and does NOT touch the healthcheck success marker.
 
 if [[ "${1:-}" == "s3" && "${2:-}" == "mv" ]]; then
+    # Simulate upload failure when requested.
+    if [[ -n "${AWS_EXIT_CODE:-}" && "${AWS_EXIT_CODE}" != "0" ]]; then
+        echo "fatal error: An error occurred (NoSuchBucket)" >&2
+        exit "${AWS_EXIT_CODE}"
+    fi
+
     # Grab the last two positional (non-flag) arguments: source and destination.
     args=()
     for arg in "$@"; do

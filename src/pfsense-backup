@@ -1,0 +1,369 @@
+#!/usr/bin/env bash
+
+# Download a pfSense firewall configuration to stdout.
+#
+# Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SYNOPSIS
+#   pfsense-backup [options]
+#
+# DESCRIPTION
+#   Connects to a pfSense firewall via SSH, downloads the config.xml,
+#   validates required fields, and streams the raw XML to stdout.  All
+#   progress messages go to stderr.
+#
+#   If PFSENSE_BACKUP_NAME_FILE is set to a writable path, the computed
+#   base filename is written there so callers can name the output file
+#   appropriately.
+#
+# OPTIONS
+#   -?,--help              Display this help text
+#   -v,--version           Display command version
+#   -H,--host HOST         pfSense hostname or IP
+#                          (env: PFSENSE_HOST; fallback: TAILSCALE_HOST,
+#                          first-hop gateway via traceroute)
+#   -u,--user USER         SSH username (env: PFSENSE_USER;
+#                          default: remote-backup)
+#   -i,--identity-file FILE
+#                          Private key file (env: PFSENSE_IDENTITY_FILE;
+#                          default: /run/secrets/pfsense-identity)
+#   -p,--password PW       Key passphrase (env: PFSENSE_IDENTITY_PASSWORD)
+#   -P,--password-file FILE
+#                          Passphrase file
+#                          (env: PFSENSE_IDENTITY_PASSWORD_FILE;
+#                          default: /run/secrets/pfsense-identity-password)
+#      --strict-host-key-checking MODE
+#                          SSH host-key checking mode: yes, accept-new, no
+#                          (env: PFSENSE_SSH_STRICT_HOST_KEY_CHECKING;
+#                          default: accept-new)
+#      --known-hosts FILE  Known hosts file
+#                          (env: PFSENSE_SSH_KNOWN_HOSTS_FILE;
+#                          default: /root/.ssh/known_hosts)
+#
+# ENVIRONMENT
+#   PFSENSE_HOST           pfSense hostname or IP address
+#   PFSENSE_USER           SSH username (default: remote-backup)
+#   PFSENSE_IDENTITY_FILE  Private key file
+#                          (default: /run/secrets/pfsense-identity)
+#   PFSENSE_IDENTITY_PASSWORD
+#                          Key passphrase (warning: visible in process table)
+#   PFSENSE_IDENTITY_PASSWORD_FILE
+#                          Path to passphrase file
+#                          (default: /run/secrets/pfsense-identity-password)
+#   PFSENSE_SSH_STRICT_HOST_KEY_CHECKING
+#                          SSH host-key checking mode (default: accept-new)
+#   PFSENSE_SSH_KNOWN_HOSTS_FILE
+#                          Known hosts file (default: /root/.ssh/known_hosts)
+#   PFSENSE_EXTRA_SSH_ARGS    Additional ssh options (space-separated)
+#   PFSENSE_EXTRA_SSHPASS_ARGS
+#                          Additional sshpass options (space-separated)
+#   TAILSCALE_HOST         Fallback hostname when PFSENSE_HOST is unset
+#   PFSENSE_BACKUP_NAME_FILE
+#                          Path to write the computed base filename
+#   DEBUG                  Enable debug tracing (default: false)
+#   ENV                    Env-file path (default: ~/.env)
+#
+# EXAMPLES
+#   # Download pfSense configuration to a file:
+#   pfsense-backup --host firewall \
+#       --identity-file ~/.ssh/remote-backup.ed25519 \
+#       --password-file secret-pw > config.xml
+#
+#   # One-shot backup via docker run:
+#   docker run --rm \
+#       -e PFSENSE_HOST=firewall \
+#       -v ./secrets/pfsense-identity:/run/secrets/pfsense-identity:ro \
+#       -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
+#       1121citrus/pfsense-backup pfsense-backup > config.xml
+
+command=$(basename "${0}")
+
+# shellcheck disable=SC1091
+source /usr/local/bin/common-functions
+
+ENV=${ENV:-${HOME:-/root}/.env}
+set -o errexit -o errtrace -o nounset -o pipefail
+# shellcheck disable=SC1090
+[[ -r "${ENV}" ]] && source "${ENV}"
+is_true "${DEBUG:=false}" && set -o xtrace -o verbose
+
+show_help() {
+    cat <<'EOF'
+Usage: pfsense-backup [options]
+
+Download a pfSense firewall configuration to stdout.
+
+Options:
+  -?,--help              Display this help text
+  -v,--version           Display command version
+  -H,--host HOST         pfSense hostname or IP
+                         (env: PFSENSE_HOST; fallback: TAILSCALE_HOST,
+                         first-hop gateway via traceroute)
+  -u,--user USER         SSH username (env: PFSENSE_USER;
+                         default: remote-backup)
+  -i,--identity-file FILE
+                         Private key file (env: PFSENSE_IDENTITY_FILE;
+                         default: /run/secrets/pfsense-identity)
+  -p,--password PW       Key passphrase (env: PFSENSE_IDENTITY_PASSWORD)
+  -P,--password-file FILE
+                         Passphrase file
+                         (env: PFSENSE_IDENTITY_PASSWORD_FILE;
+                         default: /run/secrets/pfsense-identity-password)
+     --strict-host-key-checking MODE
+                         SSH host-key checking mode: yes, accept-new, no
+                         (env: PFSENSE_SSH_STRICT_HOST_KEY_CHECKING;
+                         default: accept-new)
+     --known-hosts FILE  Known hosts file
+                         (env: PFSENSE_SSH_KNOWN_HOSTS_FILE;
+                         default: /root/.ssh/known_hosts)
+
+Note: The SSH key must be passphrase-protected; sshpass supplies the
+passphrase non-interactively.  See the README for security considerations.
+
+Examples:
+  # Download pfSense configuration to a file:
+  pfsense-backup --host firewall \
+      --identity-file ~/.ssh/remote-backup.ed25519 \
+      --password-file secret-pw > config.xml
+
+  # One-shot backup via docker run:
+  docker run --rm \
+      -e PFSENSE_HOST=firewall \
+      -v ./secrets/pfsense-identity:/run/secrets/pfsense-identity:ro \
+      -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
+      1121citrus/pfsense-backup pfsense-backup > config.xml
+EOF
+}
+
+show_version() {
+    cat /usr/local/share/pfsense-backup/version 2>/dev/null || echo "unknown"
+}
+
+# Defaults from environment.
+# Host resolution: CLI -H flag > PFSENSE_HOST > TAILSCALE_HOST > traceroute
+# (traceroute fallback is applied after option parsing)
+host="${PFSENSE_HOST:-${TAILSCALE_HOST:-}}"
+user="${PFSENSE_USER:-remote-backup}"
+identity_file="${PFSENSE_IDENTITY_FILE:-/run/secrets/pfsense-identity}"
+password="${PFSENSE_IDENTITY_PASSWORD:-}"
+password_file="${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}"
+strict_host_key_checking="${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
+known_hosts_file="${PFSENSE_SSH_KNOWN_HOSTS_FILE:-/root/.ssh/known_hosts}"
+
+# Parse arguments.
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -\?|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--version)
+            show_version
+            exit 0
+            ;;
+        -H|--host)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            host="$2"
+            shift
+            ;;
+        -u|--user)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            user="$2"
+            shift
+            ;;
+        -i|--identity-file)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            identity_file="$2"
+            shift
+            ;;
+        -p|--password)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            password="$2"
+            shift
+            ;;
+        -P|--password-file)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            password_file="$2"
+            shift
+            ;;
+        --strict-host-key-checking)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            strict_host_key_checking="$2"
+            shift
+            ;;
+        --known-hosts)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            known_hosts_file="$2"
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            error "unknown option: '${1}'"
+            ;;
+        *)
+            error "unexpected argument: '${1}'"
+            ;;
+    esac
+    shift
+done
+
+# Host resolution priority: CLI flag > PFSENSE_HOST > TAILSCALE_HOST >
+# detected internal gateway.  The traceroute probe is a last-resort
+# fallback for bare-metal / VM deployments where the firewall IP is the
+# first hop — it runs only when neither env var is set.
+if [[ -z "${host}" ]]; then
+    host=$(traceroute -m 1 1.1.1.1 2>/dev/null \
+        | head -1 \
+        | sed -E 's/.* [(]([^)]*)[)].*/\1/' || true)
+fi
+[[ -n "${host}" ]] || \
+    error 'need PFSENSE_HOST, TAILSCALE_HOST, or --host / -H'
+
+# Validate identity file.
+[[ -n "${identity_file}" ]] || \
+    error 'need PFSENSE_IDENTITY_FILE or --identity-file (default: /run/secrets/pfsense-identity)'
+[[ -r "${identity_file}" ]] || \
+    error "'${identity_file}' not found or is not readable"
+
+# Resolve passphrase.  have_password holds 'true' or 'false' as shell
+# commands (exit code 0/1).  The pattern "${have_password} || error ..."
+# executes the stored command and branches on its exit code.
+have_password=false
+sshpass_args=(-P passphrase)
+if [[ -n "${password}" ]]; then
+    # sshpass -p passes the passphrase as a command-line argument, which is
+    # briefly visible in /proc/<pid>/cmdline while sshpass is running.
+    # Prefer --password-file (Docker secret) for production.
+    sshpass_args+=(-p "${password}")
+    have_password=true
+elif [[ -r "${password_file}" ]]; then
+    # sshpass -f reads the passphrase from a file — never appears in cmdline.
+    # sshpass does not enforce any particular file permissions, so no chmod needed.
+    sshpass_args+=(-f "${password_file}")
+    have_password=true
+fi
+${have_password} || error \
+    'need PFSENSE_IDENTITY_PASSWORD, --password, or --password-file (default: /run/secrets/pfsense-identity-password)'
+
+if [[ -n "${PFSENSE_EXTRA_SSHPASS_ARGS:=}" ]]; then
+    read -r -a sshpass_extra_args <<< "${PFSENSE_EXTRA_SSHPASS_ARGS}"
+    sshpass_args+=("${sshpass_extra_args[@]}")
+fi
+
+# SSH option rationale:
+#   -F /dev/null               — ignore ~/.ssh/config; local settings must
+#                                not interfere with the container session
+#   -T                         — no PTY; pfSense's backup user runs a
+#                                command, not an interactive shell
+#   LogLevel=quiet             — suppress banner/MOTD noise on stdout
+#   StrictHostKeyChecking      — default accept-new: trust on first
+#                                connect, reject changed keys thereafter
+#   UserKnownHostsFile         — persist the known-hosts across runs so
+#                                key changes are detected
+if [[ "${strict_host_key_checking}" == "no" ]]; then
+    known_hosts_arg="UserKnownHostsFile=/dev/null"
+else
+    touch "${known_hosts_file}"
+    chmod 600 "${known_hosts_file}" 2>/dev/null || \
+        debug "unable to set permissions on '${known_hosts_file}'"
+    known_hosts_arg="UserKnownHostsFile=${known_hosts_file}"
+fi
+ssh_args=(
+    -F /dev/null
+    -T
+    -o LogLevel=quiet
+    -o "StrictHostKeyChecking=${strict_host_key_checking}"
+    -o "${known_hosts_arg}"
+)
+if [[ -n "${PFSENSE_EXTRA_SSH_ARGS:-}" ]]; then
+    read -r -a ssh_extra_args <<< "${PFSENSE_EXTRA_SSH_ARGS}"
+    ssh_args+=("${ssh_extra_args[@]}")
+fi
+
+if is_true "${DEBUG}"; then
+    ssh_args=(-v "${ssh_args[@]}")
+    sshpass_args=(-v "${sshpass_args[@]}")
+fi
+
+info "begin ${command}"
+
+# Create a work directory for download validation.
+workdir=$(mktemp -d)
+# shellcheck disable=SC2317  # invoked indirectly via trap EXIT
+cleanup() {
+    rm -rf "${workdir}" >/dev/null 2>&1 || true
+}
+trap 'cleanup' EXIT
+
+# Copy the identity file into the workdir so ssh always receives a key
+# with permissions 0600.  Docker secrets and read-only bind-mounts present
+# the file as immutable; copying to a writable path prevents OpenSSH from
+# rejecting the key with "UNPROTECTED PRIVATE KEY FILE".
+identity_tmp="${workdir}/identity.key"
+cp -- "${identity_file}" "${identity_tmp}"
+chmod 600 "${identity_tmp}"
+identity_file="${identity_tmp}"
+
+config_tmp="${workdir}/config.xml"
+ssh_stderr="${workdir}/ssh-stderr.txt"
+if ! sshpass "${sshpass_args[@]}" ssh "${ssh_args[@]}" \
+    -l "${user}" \
+    -i "${identity_file}" \
+    "${host}" > "${config_tmp}" 2>"${ssh_stderr}"; then
+    debug "ssh configuration download failed for user='${user}' host='${host}'"
+    # Log any output from ssh/sshpass — even LogLevel=quiet emits fatal
+    # errors (host not found, auth failure, connection refused) to stderr.
+    # Set DEBUG=true for full verbose ssh output (-v).
+    if [[ -s "${ssh_stderr}" ]]; then
+        while IFS= read -r line; do
+            debug "ssh: ${line}"
+        done < "${ssh_stderr}"
+    fi
+    error "configuration download failed"
+fi
+
+# Extract and validate metadata from the downloaded XML.  grep -m1 stops at
+# the first match (each field appears once near the top of the file); cut
+# carves out the text content between the opening and closing tags.
+version=$(grep -m1 '<version' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
+[[ -n "${version}" ]] || error 'invalid pfSense configuration file - missing version'
+hostname=$(grep -m1 '<hostname' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
+[[ -n "${hostname}" ]] || error 'invalid pfSense configuration file - missing hostname'
+domain=$(grep -m1 '<domain' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
+[[ -n "${domain}" ]] || error 'invalid pfSense configuration file - missing domain'
+
+# Sanitize values extracted from XML before embedding them in the filename.
+# Allow only alphanumeric characters, hyphens, underscores, and dots.  Any
+# other character (including path separators) is replaced with a hyphen.
+# This prevents directory traversal and filename injection via a crafted
+# config file.
+hostname="${hostname//[^a-zA-Z0-9._-]/-}"
+version="${version//[^a-zA-Z0-9._-]/-}"
+backup_file="$(date +%Y%m%dT%H%M%S)-${hostname}-pfsense-v${version}-config-backup.xml"
+
+# Write the suggested filename to the sidecar file if requested, so the
+# service wrapper (backup) can name the output without re-parsing the XML.
+if [[ -n "${PFSENSE_BACKUP_NAME_FILE:=}" ]]; then
+    printf '%s' "${backup_file}" > "${PFSENSE_BACKUP_NAME_FILE}"
+fi
+
+info "streaming config: ${backup_file}"
+cat "${config_tmp}"
+
+info "finish ${command}"

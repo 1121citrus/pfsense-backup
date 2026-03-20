@@ -28,8 +28,14 @@ source /usr/local/bin/common-functions
 
 if is_true "${DEBUG:-false}"; then set -o xtrace -o verbose; fi
 
-# Write cronjob env to file, fill in sensible defaults, and read them back in
-# Use a helper to safely quote values containing single quotes
+# crond runs jobs with a minimal environment (just PATH and a few system
+# vars).  Write all runtime configuration to ~/.env so each job can source
+# it on startup and get the full variable set.  This is simpler than
+# threading variables through crond's own ENVFILE mechanism.
+#
+# __quote handles embedded single quotes in variable values by replacing
+# each ' with '"'"' — the standard shell quoting idiom — so the generated
+# export statements remain syntactically valid when sourced.
 __quote() { printf '%s' "${1//\'/\'\"\'\"\'}" ; }
 cat <<EOF >"${ENV}"
 export AWS_CONFIG_FILE='$(__quote "${AWS_CONFIG_FILE:-/run/secrets/aws-config}")'
@@ -42,6 +48,7 @@ export GPG_CIPHER_ALGO='$(__quote "${GPG_CIPHER_ALGO:-aes256}")'
 export GPG_PASSPHRASE='$(__quote "${GPG_PASSPHRASE:-}")'
 export GPG_PASSPHRASE_FILE='$(__quote "${GPG_PASSPHRASE_FILE:-/run/secrets/gpg-passphrase}")'
 export HEALTHCHECK_MAX_AGE_SECONDS='$(__quote "${HEALTHCHECK_MAX_AGE_SECONDS:-172800}")'
+export HEALTHCHECK_STARTUP_FILE='$(__quote "${HEALTHCHECK_STARTUP_FILE:-/tmp/pfsense-backup.started-at}")'
 export HEALTHCHECK_STARTUP_GRACE_SECONDS='$(__quote "${HEALTHCHECK_STARTUP_GRACE_SECONDS:-900}")'
 export HEALTHCHECK_SUCCESS_FILE='$(__quote "${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}")'
 export PFSENSE_HOST='$(__quote "${PFSENSE_HOST:-}")'
@@ -55,17 +62,25 @@ export RSA_PUBLIC_KEY_FILE='$(__quote "${RSA_PUBLIC_KEY_FILE:=/run/secrets/rsa-p
 export TAILSCALE_HOST='$(__quote "${TAILSCALE_HOST:-}")'
 export TZ='$(__quote "${TZ:-UTC}")'
 EOF
+# clean-credentials redacts sensitive values before logging the .env
+# contents.  GPG_PASSPHRASE and PFSENSE_IDENTITY_PASSWORD are replaced with
+# **REDACTED** so secrets are never written to Docker logs.
 clean-credentials() {
-    sed -E 's/(GPG_PASSPHRASE|PFSENSE_IDENTITY_PASSWORD)='"'"'.*'"'"'$/\1='"'**REDACTED**'"'/' 
+    sed -E 's/(GPG_PASSPHRASE|PFSENSE_IDENTITY_PASSWORD)='"'"'.*'"'"'$/\1='"'**REDACTED**'"'/'
 }
 info "create env file ${ENV}"
 chmod -c 0600 "${ENV}" | info
-cat "${ENV}" | clean-credentials | info
+clean-credentials < "${ENV}" | info
 # shellcheck disable=SC1090
 source "${ENV}"
-touch /tmp/pfsense-backup.started-at
 
-# Add our cron entry, and direct stdout & stderr to Docker commands stdout
+# Touch the startup marker now so the healthcheck can distinguish a freshly
+# started container (within grace window) from one where the backup is
+# genuinely overdue.  See src/healthcheck: has_cronjob_run().
+touch "${HEALTHCHECK_STARTUP_FILE}"
+
+# Write the crontab and hand off to crond as PID 1.
+# crond -l 2 sets log level 2 (notice); -f runs in the foreground.
 COMMAND=${COMMAND:-/usr/local/bin/backup}
 info "installing cron.d entry: ${COMMAND}"
 (mkdir -pv /var/spool/cron/crontabs && chmod -c 0755 /var/spool/cron/crontabs) | info
