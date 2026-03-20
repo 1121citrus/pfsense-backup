@@ -20,6 +20,17 @@
 ARG ALPINE_TAG=3.21
 FROM alpine:${ALPINE_TAG}
 
+# OCI image annotations (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
+# These are embedded in the image manifest and surfaced by `docker inspect`,
+# `docker buildx imagetools inspect`, and registry UIs.
+LABEL org.opencontainers.image.title="pfsense-backup" \
+      org.opencontainers.image.description="Periodic pfSense configuration backup to AWS S3" \
+      org.opencontainers.image.url="https://github.com/1121citrus/pfsense-backup" \
+      org.opencontainers.image.source="https://github.com/1121citrus/pfsense-backup" \
+      org.opencontainers.image.vendor="1121 Citrus Avenue" \
+      org.opencontainers.image.authors="James Hanlon <jim@hanlonsoftware.com>" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+
 # Install dependencies and configure the container environment
 RUN set -Eeux; \
     apk update && \
@@ -37,6 +48,7 @@ RUN set -Eeux; \
         pigz>2.8 \
         pixz>1.0 \
         sshpass>1.10 \
+        traceroute>2.1 \
         xz>5.6 \
         zip>3.0 \
         && \

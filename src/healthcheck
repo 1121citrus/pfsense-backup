@@ -41,31 +41,48 @@ function has_cronjob_run() {
     local now
     now=$(date +%s)
 
+    # Evaluate both markers independently so that the startup grace window can
+    # be honoured even when a stale success marker exists (e.g. after a restart
+    # where the marker survived on a persistent volume).  Only emit an error
+    # once both conditions have been assessed.
+    local fresh_backup=false within_grace=false backup_age='' uptime=''
+
     if [[ -f "${HEALTHCHECK_SUCCESS_FILE}" ]]; then
         local last_success
-        local age
         last_success=$(epoch_modified "${HEALTHCHECK_SUCCESS_FILE}")
-        age=$((now - last_success))
-        (( age <= HEALTHCHECK_MAX_AGE_SECONDS )) && return 0
-        error "latest successful backup is too old: ${age}s > ${HEALTHCHECK_MAX_AGE_SECONDS}s"
+        backup_age=$((now - last_success))
+        (( backup_age <= HEALTHCHECK_MAX_AGE_SECONDS )) && fresh_backup=true
     fi
 
     if [[ -f "${HEALTHCHECK_STARTUP_FILE}" ]]; then
         local started_at
-        local uptime
         started_at=$(epoch_modified "${HEALTHCHECK_STARTUP_FILE}")
         uptime=$((now - started_at))
-        (( uptime <= HEALTHCHECK_STARTUP_GRACE_SECONDS )) && return 0
-        error "no successful backup marker yet and startup grace exceeded: ${uptime}s > ${HEALTHCHECK_STARTUP_GRACE_SECONDS}s"
+        (( uptime <= HEALTHCHECK_STARTUP_GRACE_SECONDS )) && within_grace=true
     fi
 
+    # A fresh backup is always healthy.
+    "${fresh_backup}" && return 0
+
+    # No fresh backup, but still within the startup grace window is also healthy.
+    # This correctly handles a container restart where the previous success
+    # marker is stale but not enough time has elapsed for a new backup to run.
+    "${within_grace}" && return 0
+
+    # Unhealthy — emit the most actionable error available.
+    if [[ -n "${backup_age}" ]]; then
+        error "latest successful backup is too old: ${backup_age}s > ${HEALTHCHECK_MAX_AGE_SECONDS}s"
+    fi
+    if [[ -n "${uptime}" ]]; then
+        error "startup grace period exceeded (${uptime}s > ${HEALTHCHECK_STARTUP_GRACE_SECONDS}s) with no successful backup"
+    fi
     error "missing both startup and successful backup markers"
 }
 
 function is_crond_running() {
     if pidof crond >/dev/null 2>&1; then
         return 0
-    elif ps aux | grep -Eq '[c]rond( |$)'; then
+    elif pgrep -x crond >/dev/null 2>&1; then
         return 0
     else
         error crond is not running

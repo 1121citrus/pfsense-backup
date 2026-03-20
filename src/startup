@@ -42,6 +42,7 @@ export GPG_CIPHER_ALGO='$(__quote "${GPG_CIPHER_ALGO:-aes256}")'
 export GPG_PASSPHRASE='$(__quote "${GPG_PASSPHRASE:-}")'
 export GPG_PASSPHRASE_FILE='$(__quote "${GPG_PASSPHRASE_FILE:-/run/secrets/gpg-passphrase}")'
 export HEALTHCHECK_MAX_AGE_SECONDS='$(__quote "${HEALTHCHECK_MAX_AGE_SECONDS:-172800}")'
+export HEALTHCHECK_STARTUP_FILE='$(__quote "${HEALTHCHECK_STARTUP_FILE:-/tmp/pfsense-backup.started-at}")'
 export HEALTHCHECK_STARTUP_GRACE_SECONDS='$(__quote "${HEALTHCHECK_STARTUP_GRACE_SECONDS:-900}")'
 export HEALTHCHECK_SUCCESS_FILE='$(__quote "${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}")'
 export PFSENSE_HOST='$(__quote "${PFSENSE_HOST:-}")'
@@ -63,7 +64,7 @@ chmod -c 0600 "${ENV}" | info
 cat "${ENV}" | clean-credentials | info
 # shellcheck disable=SC1090
 source "${ENV}"
-touch /tmp/pfsense-backup.started-at
+touch "${HEALTHCHECK_STARTUP_FILE}"
 
 # Add our cron entry, and direct stdout & stderr to Docker commands stdout
 COMMAND=${COMMAND:-/usr/local/bin/backup}

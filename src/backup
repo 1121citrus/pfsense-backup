@@ -54,7 +54,11 @@ host="${PFSENSE_HOST:-${TAILSCALE_HOST:-${internal_gateway}}}"
 identity_file="${PFSENSE_IDENTITY_FILE:=/run/secrets/pfsense-identity}"
 [[ -n "${identity_file}" ]] || error 'need PFSENSE_IDENTITY_FILE (default: /run/secrets/pfsense-identity)'
 [[ -r "${identity_file}" ]] || error "${identity_file} not found or is not readable"
-chmod 600 "${identity_file}" 2>/dev/null || true
+# Restrict key file permissions.  Warn rather than fail: Docker secrets are
+# mounted read-only (0400 root:root) so chmod succeeds on a rw bind-mount but
+# may fail on a read-only mount — both are acceptable.
+chmod 600 "${identity_file}" 2>/dev/null || \
+    debug "unable to set permissions on '${identity_file}' (read-only mount?)"
 user="${PFSENSE_USER:=remote-backup}"
 
 # don't use ssh config file; no pty 
@@ -64,7 +68,8 @@ if [[ "${strict_host_key_checking}" == "no" ]]; then
     known_hosts_arg="UserKnownHostsFile=/dev/null"
 else
     touch "${known_hosts_file}"
-    chmod 600 "${known_hosts_file}" 2>/dev/null || true
+    chmod 600 "${known_hosts_file}" 2>/dev/null || \
+        debug "unable to set permissions on '${known_hosts_file}'"
     known_hosts_arg="UserKnownHostsFile=${known_hosts_file}"
 fi
 ssh_args=(
@@ -91,10 +96,14 @@ fi
 have_password=false
 PFSENSE_IDENTITY_PASSWORD="${PFSENSE_IDENTITY_PASSWORD:=}"
 if [[ -n "${PFSENSE_IDENTITY_PASSWORD}" ]]; then
+    # NOTE: -p passes the passphrase as a command-line argument, which is
+    # briefly visible in /proc/<pid>/cmdline while sshpass is running.
+    # Prefer PFSENSE_IDENTITY_PASSWORD_FILE (Docker secret) for production use.
     sshpass_args+=( -p "${PFSENSE_IDENTITY_PASSWORD}" )
     have_password=true
 elif [[ -r "${PFSENSE_IDENTITY_PASSWORD_FILE:=/run/secrets/pfsense-identity-password}" ]]; then
-    chmod 600 "${PFSENSE_IDENTITY_PASSWORD_FILE}" 2>/dev/null || true
+    chmod 600 "${PFSENSE_IDENTITY_PASSWORD_FILE}" 2>/dev/null || \
+        debug "unable to set permissions on '${PFSENSE_IDENTITY_PASSWORD_FILE}' (read-only mount?)"
     sshpass_args+=( -f "${PFSENSE_IDENTITY_PASSWORD_FILE}" )
     have_password=true
 fi
@@ -106,7 +115,8 @@ if [[ -n "${GPG_PASSPHRASE:=}" ]]; then
     gpg_args+=(--passphrase "${GPG_PASSPHRASE}")
     gpg_encrypt=true
 elif [[ -r "${GPG_PASSPHRASE_FILE:=/run/secrets/gpg-passphrase}" ]]; then
-    chmod 600 "${GPG_PASSPHRASE_FILE}" 2>/dev/null || true
+    chmod 600 "${GPG_PASSPHRASE_FILE}" 2>/dev/null || \
+        debug "unable to set permissions on '${GPG_PASSPHRASE_FILE}' (read-only mount?)"
     gpg_args+=(--passphrase-file "${GPG_PASSPHRASE_FILE}")
     gpg_encrypt=true
 fi
@@ -128,7 +138,7 @@ if ! sshpass "${sshpass_args[@]}" ssh "${ssh_args[@]}" \
     -l "${user}" \
     -i "${identity_file}" \
     "${host}" > "${config_tmp}"; then
-    debug "ssh configuration download failed for user='${user}' host='${host}' identity='${identity_file}'"
+    debug "ssh configuration download failed for user='${user}' host='${host}'"
     error "configuration download failed"
 fi
 
@@ -138,6 +148,12 @@ hostname=$(grep -m1 '<hostname' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" 
 [[ -n "${hostname}" ]] || error 'invalid pfSense configuration file - missing hostname'
 domain=$(grep -m1 '<domain' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
 [[ -n "${domain}" ]] || error 'invalid pfSense configuration file - missing domain'
+# Sanitize values extracted from XML before embedding them in the filename.
+# Allow only alphanumeric characters, hyphens, underscores, and dots.  Any
+# other character (including path separators) is replaced with a hyphen.  This
+# prevents directory traversal and filename-injection via a crafted config file.
+hostname="${hostname//[^a-zA-Z0-9._-]/-}"
+version="${version//[^a-zA-Z0-9._-]/-}"
 backup_file="$(date +%Y%m%dT%H%M%S)-${hostname}-pfsense-v${version}-config-backup.xml"
 
 # Add header to pulled XML file
@@ -229,8 +245,13 @@ is_true "${dryrun}" && awsargs+=(--dryrun)
 info "begin mv '${output_file}' to S3 bucket '${bucket}'"
 uri="s3://${bucket}/${output_file}"
 info "running aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
-(aws s3 mv "${awsargs[@]}" "${output_file}" "${uri}" || \
-    (error "aws s3 mv exited with status ${?}" || true)) 2>&1 | info
+# Pipe aws output through info for structured logging.  With set -o pipefail a
+# non-zero aws exit propagates through the pipeline; the || branch fires only on
+# failure and provides a clear error message before the script exits.
+# IMPORTANT: touch the healthcheck marker only after a confirmed successful
+# upload — never before, never on failure.
+aws s3 mv "${awsargs[@]}" "${output_file}" "${uri}" 2>&1 | info || \
+    error "aws s3 mv failed uploading '${output_file}' to '${uri}'"
 info "completed aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
 touch "${HEALTHCHECK_SUCCESS_FILE}" 2>/dev/null || true
 info "finish ${command}"

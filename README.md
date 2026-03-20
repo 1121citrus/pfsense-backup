@@ -10,10 +10,13 @@ An application specific service to create [pfSense](https://docs.netgate.com/pfs
 - [Example: backup periodically as cron job](#example-backup-periodically-as-cron-job)
   - [Example Log Output](#example-log-output)
 - [Example: Run "One Off" Backup](#example-run-one-off-backup)
-  - [Example Log Output](#example-log-output)
 - [Example: Docker compose file](#example-docker-compose-file)
 - [Configuration](#configuration)
+- [Health Check](#health-check)
+- [Security](#security)
 - [Building](#building)
+- [Testing](#testing)
+- [Attributions and Provenance](#attributions-and-provenance)
 
 ## Synopsis
 
@@ -33,11 +36,11 @@ specific to the remote backup task.
 2. A user is created on the pfSense system that will be used to copy the
 configuration file. The default name is 'remote-backup'.
     1. Grant the user `User - System: Shell account access` privilege
-    2. Set the public key as an authorized key for the user and restrict
-    it to only copying the config file.
-  
+    2. Set the public key as an authorized key for the user and **restrict
+    it to only copying the config file** (see [Security](#security)).
+
   ```console
-  $ cat /home/remote-backup/.ssh/authorized_keys 
+  $ cat /home/remote-backup/.ssh/authorized_keys
   restrict,pty,command="cat /cf/conf/config.xml" ssh-ed25519 AAAAC3NzaC1lZDI1MTE5AAAAIFcn7Vcaxi8rQw0/Aw7ZMFfD9h6vOzTXUd/insHick2o remote-backup
   ```
 
@@ -118,7 +121,7 @@ $ docker run -i --rm \
 ## Example: Docker compose file
 
 ```yml
-services: 
+services:
   pfsense-backup:
     container_name: pfsense-backup
     image: 1121citrus/pfsense-backup:latest
@@ -150,28 +153,128 @@ Variable | Default | Notes
 --- | --- | ---
 `AWS_CONFIG_FILE` | `/run/secrets/aws-config` | The externally provided AWS configuration file containing credentials, etc. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
 `AWS_DRYRUN` | `false` | Set to `true` to pass `--dryrun` to AWS CLI commands.
-`AWS_S3_BUCKET_NAME` |  | Required parameter. The backup files will be uploaded to this S3 bucket. You may include slashes after the bucket name if you want to upload into a specific path within the bucket, e.g. `your-bucket-name/backups/daily` (without trailing forward slash (`/`)).
+`AWS_S3_BUCKET_NAME` | | Required parameter. The backup files will be uploaded to this S3 bucket. You may include slashes after the bucket name if you want to upload into a specific path within the bucket, e.g. `your-bucket-name/backups/daily` (without trailing forward slash (`/`)).
 `COMPRESSION` | `none` | Compression application to apply: `bzip`, `bzip2`, `bzip3`, `gz`, `gzip`, `lzma`, `lzo`, `lzop`, `none`, `pigz`, `pixz`, `xz`, `zip`
 `CRON_EXPRESSION` | `@daily` | Standard debian-flavored `cron` expression for when the backup should run. Use e.g. `0 4 * * *` to back up at 4 AM every night. See the [man page](http://man7.org/linux/man-pages/man8/cron.8.html) or [crontab.guru](https://crontab.guru/) for more.
-`DEBUG` | `false` | Set to `true` to enable `xtrace` and `verbose` shell options, and `--verbose` option for `sshpass` and `ssh` client.
+`DEBUG` | `false` | Set to `true` to enable `xtrace` and `verbose` shell options, and `--verbose` option for `sshpass` and `ssh` client. **WARNING: enables credential exposure in logs — never use in production.**
 `GPG_CIPHER_ALGO` | `aes256` | GnuPG symmetric encryption cipher to use to encrypt the backup.
-`GPG_PASSPHRASE` | _none_ | GnuPG symmetric encryption pass-phrase to use to encrypt the backup.  WARNING: consider using the more secure `GPG_PASSPHRASE_FILE`, which might be a bind mount or a compose secret.
+`GPG_PASSPHRASE` | _none_ | GnuPG symmetric encryption pass-phrase to use to encrypt the backup.  **WARNING: consider using the more secure `GPG_PASSPHRASE_FILE`**, which might be a bind mount or a compose secret.
 `GPG_PASSPHRASE_FILE` | `/run/secrets/gpg-passphrase` | A file containing the symmetric encryption pass-phrase to use to encrypt the backup. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
-`HEALTHCHECK_MAX_AGE_SECONDS` | `172800` | Maximum allowed age in seconds of the latest successful backup marker before healthcheck fails.
-`HEALTHCHECK_STARTUP_GRACE_SECONDS` | `900` | Grace period in seconds after container start before requiring a successful backup marker.
+`HEALTHCHECK_MAX_AGE_SECONDS` | `172800` | Maximum allowed age in seconds of the latest successful backup marker before healthcheck fails. Default is 48 hours.
+`HEALTHCHECK_STARTUP_FILE` | `/tmp/pfsense-backup.started-at` | File touched at container startup, used by healthcheck grace-period logic.
+`HEALTHCHECK_STARTUP_GRACE_SECONDS` | `900` | Grace period in seconds after container start before requiring a successful backup marker. Default is 15 minutes.
 `HEALTHCHECK_SUCCESS_FILE` | `/tmp/pfsense-backup.last-success` | File touched when backup successfully uploads to S3, used by healthcheck recency validation.
-`PFSENSE_EXTRA_SSH_ARGS` | _none_ | Addition options to add to the `ssh` command.
-`PFSENSE_EXTRA_SSHPASS_ARGS` | _none_ | Addition options to add to the `sshpass` command.
+`PFSENSE_EXTRA_SSH_ARGS` | _none_ | Additional options to add to the `ssh` command.
+`PFSENSE_EXTRA_SSHPASS_ARGS` | _none_ | Additional options to add to the `sshpass` command.
 `PFSENSE_HOST` | _see notes_ | Specify the hostname or IP address of the pfSense firewall. Do not include the final `/`, otherwise backup will fail. If unset, the script falls back to `TAILSCALE_HOST`, then to the first-hop gateway derived from `traceroute`.
 `PFSENSE_IDENTITY_FILE` | `/run/secrets/pfsense-identity` | A file containing the private identity key to access the pfSense system. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
-`PFSENSE_IDENTITY_PASSWORD` | _none_ | The password to unlock the identity file. WARNING: consider using the more secure `PFSENSE_IDENTITY_PASSWORD_FILE`, which might be a bind mount or a compose secret.
+`PFSENSE_IDENTITY_PASSWORD` | _none_ | The password to unlock the identity file. **WARNING: consider using the more secure `PFSENSE_IDENTITY_PASSWORD_FILE`**, which might be a bind mount or a compose secret. When set via environment variable, the password is briefly visible in `/proc/<pid>/cmdline`.
 `PFSENSE_IDENTITY_PASSWORD_FILE` | `/run/secrets/pfsense-identity-password` | A file containing the password to unlock the identity file. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
 `PFSENSE_SSH_KNOWN_HOSTS_FILE` | `/root/.ssh/known_hosts` | Known hosts file used by SSH when host-key checking is enabled.
-`PFSENSE_SSH_STRICT_HOST_KEY_CHECKING` | `accept-new` | SSH host-key checking mode (`yes`, `accept-new`, `no`, etc). For best security, use `yes` with a pre-populated known_hosts file.
+`PFSENSE_SSH_STRICT_HOST_KEY_CHECKING` | `accept-new` | SSH host-key checking mode (`yes`, `accept-new`, `no`). **For best security use `yes` with a pre-populated known_hosts file** — the default `accept-new` is vulnerable to machine-in-the-middle on the first connection.
 `PFSENSE_USER` | `remote-backup` | The username to use to access the pfSense system.
 `TAILSCALE_HOST` | _none_ | Specify the hostname or IP address of the pfSense firewall on the Tailscale mesh. Do not include the final `/`, otherwise backup will fail. Used only when `PFSENSE_HOST` is unset.
 `TZ` | `UTC` | Which timezone should `cron` use, e.g. `America/New_York` or `Europe/Warsaw`. See [full list of available time zones](http://manpages.ubuntu.com/manpages/bionic/man3/DateTime::TimeZone::Catalog.3pm.html).
 
+## Health Check
+
+The container exposes a Docker HEALTHCHECK that validates three things every
+30 seconds:
+
+1. **Crontab** — the cron table is configured with the backup command.
+2. **crond** — the cron daemon is running.
+3. **Backup recency** — a recent successful backup marker exists.
+
+Recency logic:
+
+- If `HEALTHCHECK_SUCCESS_FILE` exists and its modification time is within
+  `HEALTHCHECK_MAX_AGE_SECONDS` → **healthy**.
+- If the success file is absent or stale, but `HEALTHCHECK_STARTUP_FILE`
+  exists and the container has been running for less than
+  `HEALTHCHECK_STARTUP_GRACE_SECONDS` → **healthy** (startup grace window).
+- Otherwise → **unhealthy**.
+
+The grace window correctly handles container restarts: if a stale success
+marker survives on a persistent volume, the container is still considered
+healthy during the startup grace period while waiting for the first new backup
+to complete.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the full security model, hardening
+checklist, and vulnerability reporting instructions.
+
+Key points:
+
+- **Restrict the SSH key on pfSense** — use `restrict,command=...` in
+  `authorized_keys` so the key can only read the config file.
+- **Use Docker secrets** (file mounts) rather than environment variables for
+  all credentials.
+- **Use `PFSENSE_SSH_STRICT_HOST_KEY_CHECKING=yes`** with a pre-populated
+  known-hosts file for production deployments.
+- **Never set `DEBUG=true` in production** — shell trace mode exposes
+  credentials in container logs.
+
 ## Building
 
-1. `docker buildx build --sbom=true --provenance=true --provenance=mode=max --platform linux/amd64,linux/arm64 -t 1121citrus/pfsense-backup:latest -t 1121citrus/pfsense-backup:x.y.z --push .`
+Use the `build` script to produce a multi-platform image:
+
+```console
+# Build for all platforms (linux/amd64 + linux/arm64), load locally
+./build
+
+# Build and push to Docker Hub with a version tag
+./build --push --tag 1.2.3
+
+# Single-architecture local build
+./build --platform linux/amd64
+```
+
+The script wraps `docker buildx build` and documents every flag in its source.
+See `./build --help` for usage.
+
+When `--push` is used, SBOM and SLSA provenance (`mode=max`) attestations are
+embedded in the pushed multi-arch manifest automatically.
+
+## Testing
+
+Tests require a built Docker image tagged `1121citrus/pfsense-backup:latest`.
+
+```console
+# Run the full test suite
+./test/run-all
+
+# Run an individual suite
+./test/backup-success
+./test/backup-encryption
+./test/backup-xml-validation
+./test/backup-aws-failure
+./test/healthcheck
+
+# Test against a specific image tag
+IMAGE=1121citrus/pfsense-backup:1.2.3 ./test/run-all
+```
+
+Tests use lightweight stub binaries in `test/bin/` that shadow the real
+`ssh`, `sshpass`, `aws`, and `traceroute` commands inside the container.
+
+## Attributions and Provenance
+
+Component | Source | License
+--- | --- | ---
+Alpine Linux base image | [hub.docker.com/_/alpine](https://hub.docker.com/_/alpine) | MIT / various
+aws-cli | [github.com/aws/aws-cli](https://github.com/aws/aws-cli) | Apache-2.0
+GnuPG | [gnupg.org](https://gnupg.org) | GPL-2.0
+OpenSSH | [openssh.com](https://www.openssh.com) | BSD-style
+sshpass | [sourceforge.net/projects/sshpass](https://sourceforge.net/projects/sshpass/) | GPL-2.0
+pigz | [zlib.net/pigz](https://zlib.net/pigz/) | MIT / zlib
+pixz | [github.com/vasi/pixz](https://github.com/vasi/pixz) | BSD-2-Clause
+
+Multi-platform images pushed to Docker Hub include a Software Bill of
+Materials (SBOM) and SLSA Build Level 3 provenance attestation. Inspect them
+with:
+
+```console
+docker buildx imagetools inspect 1121citrus/pfsense-backup:latest \
+  --format '{{ json .Provenance }}'
+```

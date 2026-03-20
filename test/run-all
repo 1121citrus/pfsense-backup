@@ -14,5 +14,6 @@ status=0
 "${whereami}/backup-success"        || status=1
 "${whereami}/backup-encryption"     || status=1
 "${whereami}/backup-xml-validation" || status=1
+"${whereami}/backup-aws-failure"    || status=1
 "${whereami}/healthcheck"           || status=1
 exit $status
