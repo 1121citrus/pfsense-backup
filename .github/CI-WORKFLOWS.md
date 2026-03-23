@@ -18,7 +18,7 @@ Single unified workflow for all CI/CD stages.
 
 ### Trigger Events
 
-- **Push:** `main`, `staging` branches and `v*` version tags
+- **Push:** `master`, `staging` branches and `v*` version tags
 - **Pull requests:** All branches
 
 ### Versioning
@@ -55,14 +55,14 @@ Artifact retention: 1 day.
 
 Six test jobs run simultaneously after build, each exercising a distinct behaviour:
 
-| Job                   | Script                    | What it tests                     |
-| --------------------- | ------------------------- | --------------------------------- |
-| `test-required-vars`  | `test/backup-required-vars` | Required environment variables  |
-| `test-backup-success` | `test/backup-success`     | Successful backup operation       |
-| `test-encryption`     | `test/backup-encryption`  | Backup encryption                 |
+| Job                   | Script                       | What it tests                  |
+| --------------------- | ---------------------------- | ------------------------------ |
+| `test-required-vars`  | `test/backup-required-vars`  | Required environment variables |
+| `test-backup-success` | `test/backup-success`        | Successful backup operation    |
+| `test-encryption`     | `test/backup-encryption`     | Backup encryption              |
 | `test-xml-validation` | `test/backup-xml-validation` | pfSense XML config validity    |
-| `test-aws-failure`    | `test/backup-aws-failure` | AWS upload error handling         |
-| `test-healthcheck`    | `test/healthcheck`        | Container health check            |
+| `test-aws-failure`    | `test/backup-aws-failure`    | AWS upload error handling      |
+| `test-healthcheck`    | `test/healthcheck`           | Container health check         |
 
 Each job downloads the shared artifact independently to run in parallel.
 

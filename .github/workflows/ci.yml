@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, staging]
+    branches: [main, master, staging]
     tags: ["v*"]
   pull_request:
+    branches: [main, master]
 
 # Minimal permissions by default; individual jobs add only what they need.
 permissions:
