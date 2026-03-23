@@ -71,75 +71,106 @@ they require live credentials and external systems.
 pfSense host and a real AWS S3 bucket.  These tests are **not** run in CI
 and require explicit setup and confirmation before they execute.
 
-### Required environment variables
+### Options
 
-| Variable | Description |
-|---|---|
-| `IMAGE` | Image to test (`./build` sets this; pass as `$1` to `test/staging`) |
-| `PFSENSE_HOST` | Hostname or IP of the pfSense firewall |
-| `PFSENSE_IDENTITY_FILE` | Path to the SSH identity (private key) file |
-| `PFSENSE_IDENTITY_PASSWORD` | Passphrase for the identity file (or use `PFSENSE_IDENTITY_PASSWORD_FILE`) |
-| `AWS_S3_BUCKET_NAME` | Target S3 bucket name |
-| `AWS_CONFIG_FILE` | Path to AWS CLI config file (or set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`) |
+All parameters can be supplied as CLI flags or environment variables.
+CLI flags take precedence over environment variables.
 
-### Optional environment variables
+```text
+test/staging [options] [IMAGE]
+```
 
-| Variable | Default | Description |
+| Flag | Environment variable | Description |
 |---|---|---|
-| `PFSENSE_USER` | `remote-backup` | SSH username on pfSense |
-| `PFSENSE_IDENTITY_PASSWORD_FILE` | `/run/secrets/pfsense-identity-password` | File containing the key passphrase |
-| `AWS_DRYRUN` | `true` (for non-test/staging buckets) | Pass `--dryrun` to `aws s3 mv` |
-| `COMPRESSION` | `none` | Compression algorithm |
-| `CRON_EXPRESSION` | `@daily` | Schedule for cron tests |
+| `IMAGE` (positional) | `IMAGE` | Image to test |
+| `--image IMAGE` | `IMAGE` | Image to test (alternative to positional) |
+| `--host HOST` | `PFSENSE_HOST` | pfSense hostname or IP |
+| `--identity-file FILE` | `PFSENSE_IDENTITY_FILE` | SSH identity (private key) file |
+| `--identity-password PASS` | `PFSENSE_IDENTITY_PASSWORD` | SSH key passphrase (or a readable file path, treated as `--identity-password-file`) |
+| `--identity-password-file FILE` | `PFSENSE_IDENTITY_PASSWORD_FILE` | File containing the SSH key passphrase |
+| `--compression FORMAT` | `COMPRESSION` | Backup compression format |
+| `--bucket BUCKET` | `AWS_S3_BUCKET_NAME` | Target S3 bucket |
+| `--aws-config FILE` | `AWS_CONFIG_FILE` | AWS CLI config file (alternative to inline key/secret) |
+| `--dryrun` | `AWS_DRYRUN=true` | Enable S3 dry-run (no real writes) |
+| `--no-dryrun` | `AWS_DRYRUN=false` | Disable S3 dry-run (write real objects) |
+| `--yes` | — | Skip the interactive confirmation prompt |
+| `--test TEST` | — | Run only the named test function |
+| `-h, --help` | — | Print usage and exit |
+
+Inline AWS credentials are also accepted via `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` as an alternative to `--aws-config`.
 
 ### Bucket safety
 
-If `AWS_S3_BUCKET_NAME` does not start with `test.` or `staging.`, a strong
-caution is displayed and `AWS_DRYRUN` is forced to `true`.  To allow real
-writes to a production bucket, explicitly set `AWS_DRYRUN=false`.
+If `--bucket` does not start with `test.` or `staging.`, a caution is
+displayed and `--dryrun` is forced on.  To allow real writes to a
+production bucket, pass `--no-dryrun` explicitly.
 
 ### Usage
 
 ```bash
-# Minimal: tests that do not require a live pfSense or AWS
-IMAGE=1121citrus/pfsense-backup:dev-abc1234 ./test/staging
+# Minimal: image-only smoke tests (no credentials needed)
+test/staging 1121citrus/pfsense-backup:dev-abc1234
 
-# With live pfSense (switch-dependent tests enabled)
-PFSENSE_HOST=192.168.1.1 \
-PFSENSE_IDENTITY_FILE=~/.ssh/pfsense-identity \
-PFSENSE_IDENTITY_PASSWORD=secret \
-IMAGE=1121citrus/pfsense-backup:dev-abc1234 \
-./test/staging
+# With live pfSense (pfSense-dependent tests enabled)
+test/staging \
+    --host 192.168.1.1 \
+    --identity-file ~/.ssh/pfsense-identity \
+    --identity-password-file ~/.secrets/pfsense-password \
+    1121citrus/pfsense-backup:dev-abc1234
 
 # Full end-to-end: pfSense + AWS (dryrun, safe)
-PFSENSE_HOST=192.168.1.1 \
-PFSENSE_IDENTITY_FILE=~/.ssh/pfsense-identity \
-PFSENSE_IDENTITY_PASSWORD=secret \
-AWS_S3_BUCKET_NAME=staging.my-backups \
-AWS_CONFIG_FILE=~/.aws/config \
-IMAGE=1121citrus/pfsense-backup:dev-abc1234 \
-./test/staging
+test/staging \
+    --host 192.168.1.1 \
+    --identity-file ~/.ssh/pfsense-identity \
+    --identity-password-file ~/.secrets/pfsense-password \
+    --bucket staging.my-backups \
+    --aws-config ~/.secrets/aws-config \
+    1121citrus/pfsense-backup:dev-abc1234
 
-# Full end-to-end: production bucket (requires AWS_DRYRUN=false)
-PFSENSE_HOST=192.168.1.1 \
-PFSENSE_IDENTITY_FILE=~/.ssh/pfsense-identity \
-PFSENSE_IDENTITY_PASSWORD=secret \
-AWS_S3_BUCKET_NAME=my-real-backups \
-AWS_CONFIG_FILE=~/.aws/config \
-AWS_DRYRUN=false \
-IMAGE=1121citrus/pfsense-backup:dev-abc1234 \
-./test/staging
+# Full end-to-end: production bucket (real S3 writes)
+test/staging \
+    --host 192.168.1.1 \
+    --identity-file ~/.ssh/pfsense-identity \
+    --identity-password-file ~/.secrets/pfsense-password \
+    --bucket my-real-backups \
+    --aws-config ~/.secrets/aws-config \
+    --no-dryrun \
+    1121citrus/pfsense-backup:dev-abc1234
+
+# Skip confirmation prompt (scripted / CI-adjacent use)
+test/staging --yes \
+    --host 192.168.1.1 \
+    --identity-file ~/.ssh/pfsense-identity \
+    --identity-password-file ~/.secrets/pfsense-password \
+    --bucket staging.my-backups \
+    1121citrus/pfsense-backup:dev-abc1234
+
+# Run a single named test
+test/staging --test test_staging_cron_fires \
+    --host 192.168.1.1 \
+    --identity-file ~/.ssh/pfsense-identity \
+    --identity-password-file ~/.secrets/pfsense-password \
+    --bucket staging.my-backups \
+    1121citrus/pfsense-backup:dev-abc1234
 ```
 
 ### What the staging tests cover
 
 | Test | Requires |
 |---|---|
-| Image has `/usr/local/bin/backup` | Image only |
-| `backup --help` exits non-zero gracefully | Image only |
+| `/usr/local/bin/backup` exists and is executable | Image only |
+| `/usr/local/bin/pfsense-backup` exists and is executable | Image only |
+| `startup` exists and is executable | Image only |
+| `/usr/local/bin/healthcheck` exists and is executable | Image only |
+| `sshpass` is present in the image | Image only |
+| `ssh` is present in the image | Image only |
+| `aws` CLI is present in the image | Image only |
 | `backup` with missing `AWS_S3_BUCKET_NAME` exits non-zero | Image only |
 | `backup` with missing `PFSENSE_HOST` exits non-zero | Image only |
 | `backup` with missing identity file exits non-zero | Image only |
-| Download config from real pfSense | Live pfSense |
-| Compress and upload to S3 (dryrun or real) | Live pfSense + AWS |
-| Cron fires on schedule and completes backup | Live pfSense + AWS + service |
+| `backup` with no credential exits non-zero | Image only |
+| Downloads config XML from live pfSense | Live pfSense |
+| Backup filename contains hostname and version from XML | Live pfSense |
+| End-to-end backup completes (SSH + upload) | Live pfSense + AWS |
+| Cron fires on schedule and backup completes | Live pfSense + AWS |

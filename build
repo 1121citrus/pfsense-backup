@@ -303,7 +303,10 @@ if [[ "${SCAN}" == "true" ]]; then
     echo "==> Stage 4: Scan ${full_image}:${VERSION}" >&2
     run docker run --rm \
         -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
+            --quiet \
+            --no-progress \
             --exit-code 1 \
             --ignore-unfixed \
             --severity HIGH,CRITICAL \
