@@ -29,11 +29,13 @@ jobs:
       - name: Run ShellCheck
         # SC1090: can't follow dynamic source paths (common-functions is not
         #         present at lint time — suppress project-wide).
+        # SC1091: source target (/usr/local/bin/common-functions) is an
+        #         install-time absolute path, not resolvable at lint time.
         # SC2148: files without a shebang are intentionally sourced libraries.
         run: |
           shellcheck \
             --shell=bash \
-            --exclude=SC1090,SC2148 \
+            --exclude=SC1090,SC1091,SC2148 \
             src/backup \
             src/common-functions \
             src/healthcheck \

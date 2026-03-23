@@ -18,8 +18,8 @@ Single unified workflow for all CI/CD stages.
 
 ### Trigger Events
 
-- **Push:** `master`, `staging` branches and `v*` version tags
-- **Pull requests:** All branches
+- **Push:** `main`, `master`, `staging` branches and `v*` version tags
+- **Pull requests:** `main`, `master` branches
 
 ### Versioning
 
@@ -39,7 +39,9 @@ No automation bumps the version — the tag is always a deliberate decision.
 
 - **Hadolint** — Dockerfile best-practice checks
 - **ShellCheck** — static analysis of `src/` and `test/` shell scripts
-  - `--exclude=SC1090,SC2148` — suppresses warnings for intentionally sourced library files
+  - `--exclude=SC1090,SC1091,SC2148` — suppresses source-following warnings:
+    SC1090 (dynamic path), SC1091 (absolute install-time path not resolvable at lint time),
+    SC2148 (intentionally sourced library files without a shebang)
 
 ---
 
