@@ -53,6 +53,14 @@ jobs:
             test/bin/traceroute \
             build
 
+      - name: Lint markdown with markdownlint-cli
+        run: |
+          docker run --rm \
+            -v "$PWD:/workdir:ro" \
+            -w /workdir \
+            ghcr.io/igorshubovych/markdownlint-cli:v0.48.0 \
+            "**/*.md"
+
   # ── Stage 2: Build ─────────────────────────────────────────────────────────
   # Build image once, share as artifact so all test jobs use the same image.
   build:

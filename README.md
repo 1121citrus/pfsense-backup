@@ -272,7 +272,7 @@ Use the `build` script to produce a multi-platform image:
 ./build
 
 # Build and push to Docker Hub with a version tag
-./build --push --tag 1.2.3
+./build --push --version 1.2.3
 
 # Single-architecture local build
 ./build --platform linux/amd64

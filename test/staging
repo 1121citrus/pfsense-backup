@@ -24,6 +24,12 @@
 #   --aws-config FILE             AWS config file path (env: AWS_CONFIG_FILE)
 #   --dryrun                      Enable S3 dry-run (env: AWS_DRYRUN; default: auto)
 #   --no-dryrun                   Disable S3 dry-run (write real objects)
+#   --scan                        Run Trivy HIGH/CRITICAL scan (default)
+#   --no-scan                     Skip Trivy scan; implies --no-advise unless
+#                                 --advise is given explicitly
+#   --advise [LIST]               Run advisory scans: grype,scout,dive,all
+#                                 (default: grype,scout)
+#   --no-advise                   Disable advisory scans
 #   --yes                         Skip the "yes" confirmation prompt
 #   --test TEST                   Run only the named test function
 #   -h, --help                    Print this message and exit
@@ -35,6 +41,8 @@
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
 #                                 Inline AWS credentials (alternative to AWS_CONFIG_FILE)
 #   AWS_DRYRUN                    true = no real S3 writes; false = live writes
+#   STAGING_SCAN                  true/false — controls Trivy scan (default: true)
+#   STAGING_ADVISE                true/false — controls Grype advisement
 #   PFSENSE_HOST                  pfSense hostname or IP
 #   PFSENSE_IDENTITY_FILE         Path to SSH identity file
 #   PFSENSE_IDENTITY_PASSWORD     Passphrase for the SSH identity (or a readable
@@ -81,6 +89,18 @@ AWS_S3_BUCKET_NAME="${AWS_S3_BUCKET_NAME:-}"
 AWS_CONFIG_FILE="${AWS_CONFIG_FILE:-}"
 _YES=false
 _ONLY_TEST=""
+_SCAN="${STAGING_SCAN:-true}"
+_ADVISE_GRYPE="${STAGING_ADVISE:-true}"
+_ADVISE_SCOUT=true
+_ADVISE_DIVE=false
+_ADVISE_EXPLICIT=false
+
+TRIVY_IMAGE=aquasec/trivy
+TRIVY_TAG=0.62.1
+GRYPE_IMAGE=anchore/grype
+GRYPE_TAG=v0.87.0
+DIVE_IMAGE=wagoodman/dive
+DIVE_TAG=latest
 
 show_help() {
     # Extract the header comment from SYNOPSIS through EXAMPLES (inclusive).
@@ -521,8 +541,42 @@ run_tests() {
     else
         echo "AWS:     not configured — AWS-dependent tests will be skipped"
     fi
+    echo "Scans:   Trivy=${_SCAN} Grype=${_ADVISE_GRYPE} Scout=${_ADVISE_SCOUT} Dive=${_ADVISE_DIVE}"
     [[ -n "${_ONLY_TEST}" ]] && echo "Filter:  --test ${_ONLY_TEST}"
     echo "============================================="
+
+    if [[ "${_SCAN}" == "true" ]]; then
+        echo "==> Scan: Trivy ${IMAGE}" >&2
+        docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
+                --exit-code 1 \
+                --ignore-unfixed \
+                --severity HIGH,CRITICAL \
+                "${IMAGE}"
+    fi
+
+    if [[ "${_ADVISE_GRYPE}" == "true" ]]; then
+        echo "==> Advise: Grype ${IMAGE}" >&2
+        docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            "${GRYPE_IMAGE}:${GRYPE_TAG}" \
+            "${IMAGE}" || true
+    fi
+
+    if [[ "${_ADVISE_SCOUT}" == "true" ]]; then
+        echo "==> Advise: Scout ${IMAGE}" >&2
+        docker scout cves "${IMAGE}" || true
+    fi
+
+    if [[ "${_ADVISE_DIVE}" == "true" ]]; then
+        echo "==> Advise: Dive ${IMAGE}" >&2
+        docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            "${DIVE_IMAGE}:${DIVE_TAG}" \
+            --ci \
+            "${IMAGE}" || true
+    fi
 
     _SKIP_COUNT=0
     local passed=0 failed=0
@@ -561,6 +615,36 @@ main() {
             --aws-config)              AWS_CONFIG_FILE="$2";             shift ;;
             --dryrun)                  AWS_DRYRUN=true  ;;
             --no-dryrun)               AWS_DRYRUN=false ;;
+            --scan)                    _SCAN=true ;;
+            --no-scan)                 _SCAN=false ;;
+            --advise|--advice)
+                _ADVISE_EXPLICIT=true
+                if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                    advisements="$2"
+                    shift
+                else
+                    advisements="grype,scout"
+                fi
+                _ADVISE_GRYPE=false
+                _ADVISE_SCOUT=false
+                _ADVISE_DIVE=false
+                IFS=',' read -ra adv_list <<< "$advisements"
+                for adv in "${adv_list[@]}"; do
+                    case "$adv" in
+                        grype)  _ADVISE_GRYPE=true ;;
+                        scout)  _ADVISE_SCOUT=true ;;
+                        dive)   _ADVISE_DIVE=true ;;
+                        all)    _ADVISE_GRYPE=true; _ADVISE_SCOUT=true; _ADVISE_DIVE=true ;;
+                        *)      echo "Unknown advisement: $adv" >&2; exit 1 ;;
+                    esac
+                done
+                ;;
+            --no-advise)
+                _ADVISE_EXPLICIT=true
+                _ADVISE_GRYPE=false
+                _ADVISE_SCOUT=false
+                _ADVISE_DIVE=false
+                ;;
             --yes)                     _YES=true ;;
             --test)                    _ONLY_TEST="$2"; shift ;;
             -h|--help)    show_help; exit 0 ;;
@@ -580,10 +664,17 @@ main() {
         shift
     done
 
+    if [[ "${_SCAN}" == "false" && "${_ADVISE_EXPLICIT}" == "false" ]]; then
+        _ADVISE_GRYPE=false
+        _ADVISE_SCOUT=false
+        _ADVISE_DIVE=false
+    fi
+
     export IMAGE
     export PFSENSE_HOST PFSENSE_IDENTITY_FILE PFSENSE_IDENTITY_PASSWORD \
            PFSENSE_IDENTITY_PASSWORD_FILE COMPRESSION
     export AWS_S3_BUCKET_NAME AWS_CONFIG_FILE AWS_DRYRUN _YES _ONLY_TEST
+    export _SCAN _ADVISE_GRYPE _ADVISE_SCOUT _ADVISE_DIVE _ADVISE_EXPLICIT
 
     local bucket="${AWS_S3_BUCKET_NAME:-}"
     local pw_file="${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}"

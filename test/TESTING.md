@@ -29,6 +29,7 @@ Or via the build script (lint + build + test + scan):
 
 ```bash
 ./test/backup-required-vars    # required-variable validation
+./test/build-options           # build + staging option coverage
 ./test/backup-success          # successful backup, all compression modes
 ./test/backup-encryption       # GPG encryption paths
 ./test/backup-xml-validation   # XML field extraction and filename sanitization
@@ -93,6 +94,10 @@ test/staging [options] [IMAGE]
 | `--aws-config FILE` | `AWS_CONFIG_FILE` | AWS CLI config file (alternative to inline key/secret) |
 | `--dryrun` | `AWS_DRYRUN=true` | Enable S3 dry-run (no real writes) |
 | `--no-dryrun` | `AWS_DRYRUN=false` | Disable S3 dry-run (write real objects) |
+| `--scan` | `STAGING_SCAN=true` | Run Trivy scan (default) |
+| `--no-scan` | `STAGING_SCAN=false` | Skip Trivy scan; implies `--no-advise` unless `--advise` is set |
+| `--advise [LIST]` | `STAGING_ADVISE=true` | Run advisory scans (`grype`, `scout`, `dive`, `all`) |
+| `--no-advise` | `STAGING_ADVISE=false` | Disable advisory scans |
 | `--yes` | — | Skip the interactive confirmation prompt |
 | `--test TEST` | — | Run only the named test function |
 | `-h, --help` | — | Print usage and exit |
