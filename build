@@ -41,9 +41,7 @@
 #   --no-advise         Skip all advisory scans (Grype, Docker Scout, and Dive).
 #   --cache CACHE_RULES One-run cache controls for scanner DBs.
 #                       Rule format: 'reset=<targets>;skip-update=<targets>'
-#                       Targets: trivy, grype, scout, all (comma-delimited)
-#                       (skip-update is not applicable to scout; it is accepted
-#                       but has no effect)
+#                       Targets: trivy, grype, all (comma-delimited)
 #   --dry-run           Print each command without executing it.
 #   --help              Print this message and exit.
 #
@@ -459,10 +457,10 @@ if [[ "${SCAN}" == "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Stages 5a & 5b: shared image archive
+# Stage 5a: shared image archive
 #
-# Grype and Scout receive the image as a tar archive to avoid requiring the
-# Docker daemon socket, which hangs on macOS Docker Desktop.
+# Grype receives the image as a tar archive to avoid requiring the Docker
+# daemon socket, which hangs on macOS Docker Desktop.
 # ---------------------------------------------------------------------------
 _advise_tar=""
 if [[ "${ADVISE_GRYPE}" == "true" ]]; then
@@ -529,11 +527,17 @@ if [[ "${ADVISE_DIVE}" == "true" ]]; then
     else
         docker save "${full_image}:${VERSION}" > "${_dive_tar}"
     fi
+    _dive_ci_config=()
+    if [[ -f "${script_dir}/.dive-ci" ]]; then
+        _dive_ci_config=(-v "${script_dir}/.dive-ci:/.dive-ci:ro")
+    fi
     run docker run --rm \
         -v "${_dive_tar}:/scan.tar:ro" \
+        "${_dive_ci_config[@]}" \
         "${DIVE_IMAGE}:${DIVE_TAG}" \
             --source docker-archive \
             --ci \
+            --ci-config /.dive-ci \
             /scan.tar || true
     rm -f "${_dive_tar}"
     trap - EXIT

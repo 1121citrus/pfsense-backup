@@ -2,8 +2,8 @@
 
 ## Reporting a Vulnerability
 
-Report security issues privately to **jim@hanlonsoftware.com**.  Do not open a
-public GitHub issue for security vulnerabilities.
+Please report security vulnerabilities through the [GitHub Security tab](https://github.com/1121citrus/pfsense-backup/security).
+Do not open a public GitHub issue for security vulnerabilities.
 
 ---
 
