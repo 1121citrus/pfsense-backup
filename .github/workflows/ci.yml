@@ -88,6 +88,8 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: ${{ env.IMAGE }}:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # Re-tag as :latest so test scripts that default to IMAGE:latest work
       # without modification.
@@ -252,3 +254,5 @@ jobs:
           sbom: true
           provenance: mode=max
           tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

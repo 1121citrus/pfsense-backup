@@ -58,6 +58,10 @@ Builds image for `linux/amd64` (the runner's native platform) and exports as a G
 
 Artifact retention: 1 day.
 
+**Docker layer cache:** `cache-from: type=gha` / `cache-to: type=gha,mode=max` — build
+layers are saved to and restored from GitHub Actions cache, speeding up incremental
+builds. The push job restores from the same cache.
+
 ---
 
 ## Stage 3: Tests (parallel)
@@ -110,6 +114,7 @@ Runs only when all tests and the scan pass, and only on version tags or the stag
 
 - **Platforms:** `linux/amd64`, `linux/arm64`
 - **Attestations:** `sbom: true` + `provenance: mode=max` (SLSA L3)
+- **Layer cache:** `cache-from: type=gha` / `cache-to: type=gha,mode=max`
 
 ---
 
