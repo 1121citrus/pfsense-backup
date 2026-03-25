@@ -31,32 +31,11 @@ jobs:
         with:
           dockerfile: Dockerfile
 
-      - name: Run ShellCheck
-        # SC1090: can't follow dynamic source paths (common-functions is not
-        #         present at lint time — suppress project-wide).
-        # SC1091: source target (/usr/local/bin/common-functions) is an
-        #         install-time absolute path, not resolvable at lint time.
-        # SC2148: files without a shebang are intentionally sourced libraries.
-        run: |
-          shellcheck -x \
-            build \
-            src/backup \
-            src/common-functions \
-            src/healthcheck \
-            src/startup \
-            test/backup-aws-failure \
-            test/backup-encryption \
-            test/backup-required-vars \
-            test/backup-success \
-            test/backup-xml-validation \
-            test/bin/aws \
-            test/bin/ssh \
-            test/bin/sshpass \
-            test/bin/traceroute \
-            test/healthcheck \
-            test/pfsense-backup \
-            test/run-all \
-            test/staging
+      - name: Lint shell scripts with shellcheck
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
+        with:
+          scandir: "."
+          severity: warning
 
       - name: Lint markdown with markdownlint-cli
         run: |
