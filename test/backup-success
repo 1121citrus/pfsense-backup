@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 
 # pfsense-backup: test successful backup paths with each compression mode.
 #

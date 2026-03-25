@@ -45,10 +45,9 @@ No automation bumps the version — the tag is always a deliberate decision.
 ## Stage 1: Lint
 
 - **Hadolint** — Dockerfile best-practice checks
-- **ShellCheck** — static analysis of `src/` and `test/` shell scripts
-  - `--exclude=SC1090,SC1091,SC2148` — suppresses source-following warnings:
-    SC1090 (dynamic path), SC1091 (absolute install-time path not resolvable at lint time),
-    SC2148 (intentionally sourced library files without a shebang)
+- **ShellCheck** — static analysis (`-x`) of `src/`, `test/`, and `build` scripts
+  - Per-file `# shellcheck disable=SC1090` / `# shellcheck disable=SC1091` directives
+    handle dynamic and install-time source paths inline
 
 ---
 

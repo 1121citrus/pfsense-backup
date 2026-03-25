@@ -38,9 +38,7 @@ jobs:
         #         install-time absolute path, not resolvable at lint time.
         # SC2148: files without a shebang are intentionally sourced libraries.
         run: |
-          shellcheck \
-            --shell=bash \
-            --exclude=SC1090,SC1091,SC2148 \
+          shellcheck -x \
             build \
             src/backup \
             src/common-functions \

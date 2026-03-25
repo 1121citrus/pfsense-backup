@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 
 # pfsense-backup: test that aws s3 mv failures are detected and reported.
 #

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 
 # An application specific service to create pfSense backups and copy them off site.
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
@@ -23,7 +24,7 @@ ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
 [[ -r "${ENV}" ]] && source "${ENV}"
 
-# shellcheck disable=SC1090
+# shellcheck disable=SC1091
 source /usr/local/bin/common-functions
 
 if is_true "${DEBUG:-false}"; then set -o xtrace -o verbose; fi
