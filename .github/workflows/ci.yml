@@ -36,6 +36,7 @@ jobs:
           shellcheck \
             --shell=bash \
             --exclude=SC1090,SC1091,SC2148 \
+            build \
             src/backup \
             src/common-functions \
             src/healthcheck \
@@ -45,15 +46,14 @@ jobs:
             test/backup-required-vars \
             test/backup-success \
             test/backup-xml-validation \
-            test/healthcheck \
-            test/pfsense-backup \
-            test/run-all \
-            test/staging \
             test/bin/aws \
             test/bin/ssh \
             test/bin/sshpass \
             test/bin/traceroute \
-            build
+            test/healthcheck \
+            test/pfsense-backup \
+            test/run-all \
+            test/staging
 
       - name: Lint markdown with markdownlint-cli
         run: |

@@ -142,9 +142,9 @@ On push/PR
 - `src/common-functions` — Shared shell library
 - `test/run-all` — Test orchestrator
 - `test/backup-*`, `test/healthcheck` — Test scripts run as CI jobs
+- `test/bin/` — Mock binaries (aws, ssh, sshpass, traceroute)
 - `test/pfsense-backup` — Tests `src/backup` directly (shellchecked; not a CI job)
 - `test/staging` — End-to-end tests against live systems (shellchecked; not a CI job)
-- `test/bin/` — Mock binaries (aws, ssh, sshpass, traceroute)
 
 ## Local Workflow Parity
 
