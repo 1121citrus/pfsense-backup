@@ -4,13 +4,14 @@ Automated linting, building, testing, security scanning, and Docker image public
 
 ## Workflow Overview
 
-| Stage        | Trigger                               | Purpose                                        |
-| ------------ | ------------------------------------- | ---------------------------------------------- |
-| **Lint**     | All pushes, PRs to main/master, tags  | Validate Dockerfile and shell scripts          |
-| **Build**    | After lint                            | Build image and share as artifact              |
-| **Tests**    | After build (6 jobs, parallel)        | Run each test suite independently              |
-| **Scan**     | After build (parallel with tests)     | Trivy image scan — blocks push on fixable CVEs |
-| **Push**     | Version tags and staging branch only  | Multi-platform build and push to Docker Hub    |
+| Stage          | Trigger                               | Purpose                                        |
+| -------------- | ------------------------------------- | ---------------------------------------------- |
+| **Lint**       | All pushes, PRs to main/master, tags  | Validate Dockerfile and shell scripts          |
+| **Build**      | After lint                            | Build image and share as artifact              |
+| **Tests**      | After build (6 jobs, parallel)        | Run each test suite independently              |
+| **Scan**       | After build (parallel with tests)     | Trivy image scan — blocks push on fixable CVEs |
+| **Push**       | Version tags and staging branch only  | Multi-platform build and push to Docker Hub    |
+| **Dependabot** | Weekly (Monday 06:00 UTC)             | Keep GitHub Actions versions current           |
 
 ## CI Workflow (`ci.yml`)
 
@@ -145,6 +146,19 @@ On push/PR
 - `test/bin/` — Mock binaries (aws, ssh, sshpass, traceroute)
 - `test/pfsense-backup` — Tests `src/backup` directly (shellchecked; not a CI job)
 - `test/staging` — End-to-end tests against live systems (shellchecked; not a CI job)
+
+## Automated dependency updates
+
+`dependabot.yml` configures weekly automated PRs to keep GitHub Actions current.
+
+- **Schedule:** Every Monday at 06:00 UTC
+- **Scope:** GitHub Actions (`package-ecosystem: github-actions`) — updates action pins in
+  `.github/workflows/*.yml`
+- **Labels:** `dependencies`, `github-actions`
+- **Security benefit:** Dependabot also proposes SHA-pinned digests (recommended for SLSA /
+  OpenSSF Scorecard hardening)
+
+---
 
 ## Local Workflow Parity
 
