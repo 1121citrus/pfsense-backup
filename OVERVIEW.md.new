@@ -1,0 +1,274 @@
+## pfsense-backup Project Exploration Report
+
+### 1. Project Structure
+
+**Language & Type:** Bash shell scripts / Docker container application
+
+**Directory Layout:**
+```
+/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/
+├── src/                          # Main application scripts
+│   ├── pfsense-backup           # CLI tool (primary entry point)
+│   ├── backup                    # Legacy service wrapper
+│   ├── startup                   # Container entrypoint
+│   ├── healthcheck              # Docker HEALTHCHECK
+│   ├── common-functions         # Shared logging library
+│   └── README.md                # Script documentation
+├── test/                         # Test suite
+│   ├── run-all                  # Test orchestrator
+│   ├── backup-required-vars     # Required variable validation tests
+│   ├── backup-success           # Successful backup tests
+│   ├── backup-encryption        # GPG encryption tests
+│   ├── backup-xml-validation    # XML validation tests
+│   ├── backup-aws-failure       # AWS failure handling tests
+│   ├── healthcheck              # Health check tests
+│   ├── pfsense-backup           # CLI tests
+│   ├── staging                  # End-to-end manual tests
+│   ├── build-options            # Build script option parsing tests
+│   ├── bin/                      # Test stub binaries (ssh, sshpass, aws, traceroute)
+│   ├── fixtures/                # XML fixture data
+│   ├── README.md
+│   └── TESTING.md
+├── .github/
+│   ├── workflows/ci.yml         # GitHub Actions CI/CD
+│   ├── CI-WORKFLOWS.md          # Workflow documentation
+│   ├── copilot-instructions.md
+│   └── dependabot.yml           # Dependabot configuration
+├── build                        # Local build script (CI equivalent)
+├── Dockerfile                   # Container build definition
+├── .markdownlint.json           # Markdown linting config
+├── .trivyignore.yaml            # Trivy vulnerability ignore list
+├── .dive-ci                     # Dive layer analysis config
+├── .dockerignore
+├── .gitignore
+├── README.md                    # Main documentation
+├── CONTRIBUTING.md              # Contributing guidelines
+├── SECURITY.md                  # Security documentation
+├── CLAUDE.md                    # Claude/Copilot instructions
+└── LICENSE.md                   # License (AGPL-3.0-or-later)
+```
+
+---
+
+### 2. CI/CD Workflow
+
+**File:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/.github/workflows/ci.yml`
+
+**Stages (Sequential + Parallel):**
+1. **Lint** - Hadolint (Dockerfile) + ShellCheck (src/, test/) + MarkdownLint
+2. **Build** - Single-platform `linux/amd64` build, exported as artifact
+3. **Tests** (6 parallel jobs) - Each test runs independently
+4. **Security Scan** (parallel with tests) - Trivy CRITICAL/HIGH scan
+5. **Push** (tags and staging only) - Multi-platform build and push to Docker Hub
+
+**Trigger Events:**
+- Push: `main`, `master`, `staging` branches and `v*` version tags
+- Pull requests: `main`, `master` branches
+
+**Concurrency:** One concurrent run per workflow + branch/tag; cancels in-progress runs except for version tags
+
+**Versioning:** Tag-driven (push `v1.2.3` → publishes `1121citrus/pfsense-backup:1.2.3` + `:latest`)
+
+**Secrets Required:**
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+
+---
+
+### 3. Build Tooling
+
+**Primary Build Tool:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/build`
+
+**Build Script Stages:**
+1. **Lint** - Hadolint + ShellCheck + MarkdownLint
+2. **Build** - Single-platform `docker buildx build --load`
+3. **Test** - Runs `./test/run-all`
+4. **Scan** - Trivy CRITICAL/HIGH image scan (blocking)
+5. **Advise** - Non-gating advisory scans (Grype, Docker Scout, Dive)
+6. **Push** - Multi-platform rebuild + push (only with `--push`)
+
+**Build Commands:**
+```bash
+./build                          # Local dev cycle (lint, build, test, scan)
+./build --push --version 1.2.3   # Release build
+./build --no-test --no-scan      # Quick iteration
+./build --help                   # See all options
+```
+
+**Docker Build Approach:**
+- Uses `docker buildx` for multi-platform support
+- Layer caching via GitHub Actions cache (`type=gha`)
+- Single-platform local load for testing
+- Multi-platform build + push on release
+
+**Base Image:** Alpine Linux (`alpine:3.21`)
+
+**Key Tools/Dependencies Installed in Docker:**
+- aws-cli (>2.20)
+- bash (>5.2)
+- bzip2, bzip3, gzip, xz, lzma, lzo, lzop, pigz, pixz, zip (compression)
+- gnupg (encryption)
+- openssh, sshpass (SSH connectivity)
+- traceroute (network diagnostics)
+
+---
+
+### 4. Testing Framework
+
+**Test Coverage:** Automated unit/integration tests (6 parallel jobs in CI)
+
+**Test Execution:**
+```bash
+./test/run-all                          # Full suite
+./build --no-scan                       # Via build script
+IMAGE=1121citrus/pfsense-backup:tag ./test/run-all
+```
+
+**Test Suites:**
+
+| Suite | File | Purpose |
+|-------|------|---------|
+| Required vars | `test/backup-required-vars` | Environment variable validation |
+| Success | `test/backup-success` | Successful backup with all compression modes |
+| Encryption | `test/backup-encryption` | GPG encryption paths |
+| XML validation | `test/backup-xml-validation` | XML field extraction, filename sanitization |
+| AWS failure | `test/backup-aws-failure` | AWS upload error handling |
+| Healthcheck | `test/healthcheck` | Container health check scenarios |
+| CLI | `test/pfsense-backup` | Additional CLI tests |
+| Build options | `test/build-options` | Build script option parsing |
+| Staging (manual) | `test/staging` | End-to-end tests against live systems |
+
+**Test Approach:**
+- Uses Docker to run tests inside container
+- Stub binaries in `test/bin/` replace `ssh`, `sshpass`, `aws`, `traceroute`
+- Fixtures in `test/fixtures/` provide test data (XML)
+- No real network access or AWS credentials needed for automated tests
+
+**Artifact Handling:** Build creates tar.gz artifact, shared across all test jobs
+
+---
+
+### 5. Linting & Formatting
+
+**Dockerfile Linting:**
+- **Tool:** Hadolint v2.12.0
+- **Config:** Inline ignores (e.g., `DL3018` for version constraints)
+
+**Shell Script Linting:**
+- **Tool:** ShellCheck v0.10.0
+- **Excluded Rules:** SC1090, SC1091, SC2148 (dynamic sources, install-time paths, libraries)
+- **Scope:** `src/`, `test/`, `build` scripts
+
+**Markdown Linting:**
+- **Tool:** MarkdownLint v0.48.0
+- **Config:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/.markdownlint.json`
+- **Disabled Rules:** MD013 (line length), MD014, MD024, MD004, MD022, MD031, MD032, MD034, MD040, MD047, MD051, MD060
+
+**Automated Security Scanning:**
+- **Trivy** (v0.62.1) - Container image scan, fails on fixable HIGH/CRITICAL CVEs
+- **Grype** (v0.87.0) - Advisory-only full-severity scan (non-gating)
+- **Docker Scout** - Advisory CVE scan (non-gating)
+- **Dive** (v0.13.1) - Layer analysis and bloat detection (non-gating)
+
+**Scanner Caching:**
+- Trivy DB cached in Docker volume `pfsense-backup-trivy-cache`
+- Grype DB cached in Docker volume `pfsense-backup-grype-cache`
+- Cache controls: `--cache reset=<targets>` or `--cache skip-update=<targets>`
+
+---
+
+### 6. Release & Versioning
+
+**Release Process:**
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+**Tagging Strategy:**
+- **Version tags:** `v1.2.3` → Images tagged `1121citrus/pfsense-backup:1.2.3` + `:latest`
+- **Staging:** Pushes to `staging` branch → `1121citrus/pfsense-backup:staging-<TIMESTAMP>` + `:staging`
+- **Dev builds:** Unpushed builds tagged `dev-<short-sha>`
+
+**Multi-platform Support:**
+- Platforms: `linux/amd64`, `linux/arm64`
+- Build tool: `docker buildx` with QEMU for cross-compilation
+
+**Attestations:**
+- SBOM generation enabled
+- SLSA provenance (mode=max) enabled
+- Can be inspected with: `docker buildx imagetools inspect 1121citrus/pfsense-backup:latest --format '{{ json .Provenance }}'`
+
+**Dependabot Configuration:** Weekly updates to GitHub Actions (Mondays, 06:00 UTC)
+
+---
+
+### 7. Documentation Files
+
+**Main Documentation:**
+- `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/README.md` - Main project documentation
+- `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/CONTRIBUTING.md` - Contribution guidelines
+- `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/SECURITY.md` - Security documentation
+- `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/.github/CI-WORKFLOWS.md` - CI/CD workflow details
+- `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/src/README.md` - Script reference documentation
+- `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/test/README.md` - Test suite overview
+- `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/test/TESTING.md` - Detailed testing guide
+- `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/CLAUDE.md` - Claude/Copilot instructions
+
+---
+
+### 8. Configuration Files
+
+**Dockerfile:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/Dockerfile` (85 lines)
+- Alpine 3.21 base
+- Installs compression, SSH, AWS CLI, GPG tools
+- Copies 4 scripts: `startup`, `backup`, `common-functions`, `healthcheck`, `pfsense-backup`
+- HEALTHCHECK directive: 30-second interval, 3-second timeout
+- CMD: `/usr/local/1121citrus/bin/startup`
+
+**Trivy Ignore:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/.trivyignore.yaml`
+- 4 CVEs ignored with justifications (urllib3 decompression bombs, cryptography ECDSA)
+- Expires 2027-06-17
+
+**Dive CI Config:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/.dive-ci`
+- `lowestEfficiency: 0.9` (kept at default)
+- `highestWastedBytes: disabled` (Alpine upgrade waste)
+- `highestUserWastedPercent: 0.20` (relaxed from 0.10 for apk upgrade)
+
+**Dependabot:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/.github/dependabot.yml`
+- GitHub Actions updates: weekly on Mondays at 06:00 UTC
+- Labels: `dependencies`, `github-actions`
+
+**Markdown Lint:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/.markdownlint.json`
+- Disables 10 rules for flexibility with markdown style
+
+**Docker Ignore:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/.dockerignore`
+- Excludes: `*.md` (all markdown files)
+
+**Git Ignore:** `/Users/jim/Property/1121-Citrus-Avenue/1121-citrus/pfsense-backup/.gitignore`
+- Ignores: `.attic`, `.project`
+
+---
+
+### Key Development Notes
+
+**Code Quality Standards:**
+- All shell scripts must pass ShellCheck with `-x` flag
+- Dockerfiles checked with Hadolint
+- Markdown linted with MarkdownLint
+- Line length: ≤80 characters preferred, <120 maximum
+- Bash style: terse, 4-space indentation, lexically sorted functions
+- Shell: env shebang, long options, `${}` variable refs
+
+**Testing Strategy:**
+- Automated tests use stub binaries to avoid external dependencies
+- Staging tests run manually against live pfSense + AWS
+- CI runs 6 parallel test jobs, all must pass before push
+- Image security scanned with Trivy (blocking) + advisory tools
+
+**Build Cache Strategy:**
+- GitHub Actions cache used for Docker layer caching
+- Trivy/Grype vulnerability DBs cached in named Docker volumes
+- Cache can be reset or update skipped via `--cache` flag
+
+All file paths are absolute and verified to exist in the project.

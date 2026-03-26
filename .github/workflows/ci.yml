@@ -86,6 +86,30 @@ jobs:
 
   # ── Stage 3: Tests (parallel) ──────────────────────────────────────────────
   # One job per test suite so failures are reported individually in the UI.
+  test-build:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { name: docker-image, path: /tmp }
+      - run: gunzip -c /tmp/image.tar.gz | docker load
+      - run: sudo npm install -g bats@1.13.0
+      - name: 01-build
+        run: bats test/01-build.bats
+
+  test-pfsense-backup:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { name: docker-image, path: /tmp }
+      - run: gunzip -c /tmp/image.tar.gz | docker load
+      - run: sudo npm install -g bats@1.13.0
+      - name: 02-pfsense-backup
+        run: bats test/02-pfsense-backup.bats
+
   test-required-vars:
     needs: build
     runs-on: ubuntu-latest
@@ -94,8 +118,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
       - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: backup-required-vars
-        run: ./test/backup-required-vars
+      - run: sudo npm install -g bats@1.13.0
+      - name: 03-backup-required-vars
+        run: bats test/03-backup-required-vars.bats
 
   test-backup-success:
     needs: build
@@ -105,8 +130,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
       - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: backup-success
-        run: ./test/backup-success
+      - run: sudo npm install -g bats@1.13.0
+      - name: 04-backup-success
+        run: bats test/04-backup-success.bats
 
   test-encryption:
     needs: build
@@ -116,19 +142,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
       - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: backup-encryption
-        run: ./test/backup-encryption
-
-  test-xml-validation:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: docker-image, path: /tmp }
-      - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: backup-xml-validation
-        run: ./test/backup-xml-validation
+      - run: sudo npm install -g bats@1.13.0
+      - name: 05-backup-encryption
+        run: bats test/05-backup-encryption.bats
 
   test-aws-failure:
     needs: build
@@ -138,8 +154,21 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
       - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: backup-aws-failure
-        run: ./test/backup-aws-failure
+      - run: sudo npm install -g bats@1.13.0
+      - name: 06-backup-aws-failure
+        run: bats test/06-backup-aws-failure.bats
+
+  test-xml-validation:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { name: docker-image, path: /tmp }
+      - run: gunzip -c /tmp/image.tar.gz | docker load
+      - run: sudo npm install -g bats@1.13.0
+      - name: 07-backup-xml-validation
+        run: bats test/07-backup-xml-validation.bats
 
   test-healthcheck:
     needs: build
@@ -149,8 +178,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
       - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: healthcheck
-        run: ./test/healthcheck
+      - run: sudo npm install -g bats@1.13.0
+      - name: 08-healthcheck
+        run: bats test/08-healthcheck.bats
 
   # ── Stage 4: Security scan ─────────────────────────────────────────────────
   # Scans the built image before pushing.  Fails the job (and blocks push) if
@@ -189,8 +219,8 @@ jobs:
   # Version tags → image:X.Y.Z + image:X.Y + image:X + image:latest
   # Staging branch → image:staging-<sha> + image:staging
   push:
-    needs: [test-required-vars, test-backup-success, test-encryption,
-            test-xml-validation, test-aws-failure, test-healthcheck, scan]
+    needs: [test-build, test-pfsense-backup, test-required-vars, test-backup-success,
+            test-encryption, test-xml-validation, test-aws-failure, test-healthcheck, scan]
     if: >
       github.event_name == 'push' && (
         startsWith(github.ref, 'refs/tags/v') ||
