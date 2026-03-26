@@ -365,14 +365,6 @@ if [[ "${LINT}" == "true" ]]; then
         src/healthcheck \
         src/pfsense-backup \
         src/startup \
-        test/backup-aws-failure \
-        test/backup-encryption \
-        test/backup-required-vars \
-        test/backup-success \
-        test/backup-xml-validation \
-        test/healthcheck \
-        test/build-options \
-        test/pfsense-backup \
         test/run-all \
         test/bin/aws \
         test/bin/ssh \
@@ -425,10 +417,6 @@ if [[ "${TEST}" == "true" ]]; then
     echo "==> Stage 3: Test" >&2
     run chmod +x \
         "${script_dir}/test/run-all" \
-        "${script_dir}/test/build-options" \
-        "${script_dir}/test/backup-"* \
-        "${script_dir}/test/healthcheck" \
-        "${script_dir}/test/pfsense-backup" \
         "${script_dir}/test/staging" \
         "${script_dir}/test/bin/"*
     (cd "${script_dir}" && IMAGE="${full_image}:${VERSION}" run ./test/run-all)
