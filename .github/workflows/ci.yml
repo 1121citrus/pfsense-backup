@@ -75,13 +75,13 @@ jobs:
         run: docker tag "$IMAGE:ci-${{ github.sha }}" "$IMAGE:latest"
 
       - name: Export image tarball
-        run: docker save "$IMAGE:latest" | gzip > /tmp/pfsense-backup.tar.gz
+        run: docker save "$IMAGE:latest" | gzip > /tmp/image.tar.gz
 
       - name: Upload image tarball
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: docker-image
-          path: /tmp/pfsense-backup.tar.gz
+          path: /tmp/image.tar.gz
           retention-days: 1
 
   # ── Stage 3: Tests (parallel) ──────────────────────────────────────────────
@@ -93,7 +93,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
-      - run: docker load < /tmp/pfsense-backup.tar.gz
+      - run: gunzip -c /tmp/image.tar.gz | docker load
       - name: backup-required-vars
         run: ./test/backup-required-vars
 
@@ -104,7 +104,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
-      - run: docker load < /tmp/pfsense-backup.tar.gz
+      - run: gunzip -c /tmp/image.tar.gz | docker load
       - name: backup-success
         run: ./test/backup-success
 
@@ -115,7 +115,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
-      - run: docker load < /tmp/pfsense-backup.tar.gz
+      - run: gunzip -c /tmp/image.tar.gz | docker load
       - name: backup-encryption
         run: ./test/backup-encryption
 
@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
-      - run: docker load < /tmp/pfsense-backup.tar.gz
+      - run: gunzip -c /tmp/image.tar.gz | docker load
       - name: backup-xml-validation
         run: ./test/backup-xml-validation
 
@@ -137,7 +137,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
-      - run: docker load < /tmp/pfsense-backup.tar.gz
+      - run: gunzip -c /tmp/image.tar.gz | docker load
       - name: backup-aws-failure
         run: ./test/backup-aws-failure
 
@@ -148,7 +148,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
-      - run: docker load < /tmp/pfsense-backup.tar.gz
+      - run: gunzip -c /tmp/image.tar.gz | docker load
       - name: healthcheck
         run: ./test/healthcheck
 
@@ -163,7 +163,7 @@ jobs:
         with: { name: docker-image, path: /tmp }
 
       - name: Load image
-        run: docker load < /tmp/pfsense-backup.tar.gz
+        run: gunzip -c /tmp/image.tar.gz | docker load
 
       - name: Cache Trivy vulnerability DB
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

@@ -58,7 +58,7 @@ No automation bumps the version — the tag is always a deliberate decision.
 
 ## Stage 2: Build
 
-Builds image for `linux/amd64` (the runner's native platform) and exports as a GitHub Actions artifact (`docker-image`). The image is re-tagged as `:latest` so test scripts that default to `IMAGE:latest` work without modification.
+Builds image for `linux/amd64` (the runner's native platform) and exports as a gzip'd tarball (`/tmp/image.tar.gz`) uploaded as the `docker-image` artifact. The image is re-tagged as `:latest` so test scripts that default to `IMAGE:latest` work without modification. Each downstream job loads the image with `gunzip -c /tmp/image.tar.gz | docker load`.
 
 Artifact retention: 1 day.
 
