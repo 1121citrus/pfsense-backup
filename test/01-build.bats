@@ -11,50 +11,68 @@ setup() {
 }
 
 @test "build --help lists --advice option" {
-    local output
-    output=$("${BUILD}" --help 2>&1)
-    echo "output: ${output}"
-    [[ "${output}" == *"--advice"* ]]
+    run "${BUILD}" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--advice"* ]]
 }
 
 @test "build --help lists --cache option" {
-    local output
-    output=$("${BUILD}" --help 2>&1)
-    echo "output: ${output}"
-    [[ "${output}" == *"--cache CACHE_RULES"* ]]
+    run "${BUILD}" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--cache CACHE_RULES"* ]]
 }
 
 @test "build --advice scout enables Scout advisement stage" {
-    local output
-    output=$("${BUILD}" --advice scout --dry-run --no-lint --no-test --no-scan 2>&1)
-    echo "output: ${output}"
-    [[ "${output}" == *"Stage 5b: Advise (Scout)"* ]]
+    run "${BUILD}" --advice scout --dry-run --no-lint --no-test --no-scan
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Stage 5b: Advise (Scout)"* ]]
+}
+
+@test "build --advise DIVE enables Dive advisement stage" {
+    run "${BUILD}" --advise DIVE --dry-run --no-lint --no-test --no-scan
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Stage 5c: Advise (Dive)"* ]]
+}
+
+@test "build --advise Dive enables Dive advisement stage" {
+    run "${BUILD}" --advise Dive --dry-run --no-lint --no-test --no-scan
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Stage 5c: Advise (Dive)"* ]]
 }
 
 @test "build --cache reset=all resets Trivy DB" {
-    local output
-    output=$("${BUILD}" --cache "reset=all" --dry-run --no-lint --no-test --no-scan --no-advise 2>&1)
-    echo "output: ${output}"
-    [[ "${output}" == *"Cache: reset Trivy DB"* ]]
+    run "${BUILD}" --cache "reset=all" --dry-run --no-lint --no-test --no-scan --no-advise
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Cache: reset Trivy DB"* ]]
 }
 
 @test "build --cache reset=all resets Grype DB" {
-    local output
-    output=$("${BUILD}" --cache "reset=all" --dry-run --no-lint --no-test --no-scan --no-advise 2>&1)
-    echo "output: ${output}"
-    [[ "${output}" == *"Cache: reset Grype DB"* ]]
+    run "${BUILD}" --cache "reset=all" --dry-run --no-lint --no-test --no-scan --no-advise
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Cache: reset Grype DB"* ]]
+}
+
+@test "build --cache Reset=All resets both caches" {
+    run "${BUILD}" --cache "Reset=All" --dry-run --no-lint --no-test --no-scan --no-advise
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Cache: reset Trivy DB"* ]]
+    [[ "$output" == *"Cache: reset Grype DB"* ]]
+}
+
+@test "build --cache Skip-Update=TrIvY skips Trivy DB update" {
+    run "${BUILD}" --cache "Skip-Update=TrIvY" --dry-run --no-lint --no-test --no-scan --no-advise
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Cache: Trivy DB update skipped"* ]]
 }
 
 @test "test/staging --help lists --scan option" {
-    local output
-    output=$("${STAGING}" --help 2>&1)
-    echo "output: ${output}"
-    [[ "${output}" == *"--scan"* ]]
+    run "${STAGING}" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--scan"* ]]
 }
 
 @test "test/staging --help lists --advise option" {
-    local output
-    output=$("${STAGING}" --help 2>&1)
-    echo "output: ${output}"
-    [[ "${output}" == *"--advise"* ]]
+    run "${STAGING}" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--advise"* ]]
 }

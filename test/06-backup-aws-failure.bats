@@ -29,7 +29,9 @@ setup() {
 }
 
 teardown() {
-    [ -n "${TEST_TMPDIR:-}" ] && rm -rf "${TEST_TMPDIR}"
+    if [ -n "${TEST_TMPDIR:-}" ]; then
+        rm -rf "${TEST_TMPDIR}"
+    fi
 }
 
 @test "exits non-zero when aws s3 mv fails" {

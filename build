@@ -178,21 +178,21 @@ parse_cache_rules() {
     for entry in "${_cache_rules[@]}"; do
         key="${entry%%=*}"
         value="${entry#*=}"
-        key="${key//[[:space:]]/}"
-        value="${value//[[:space:]]/}"
+        key_lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+        value_lower=$(echo "$value" | tr '[:upper:]' '[:lower:]')
 
-        if [[ -z "${key}" && -z "${value}" ]]; then
+        if [[ -z "${key_lower}" && -z "${value_lower}" ]]; then
             continue
         fi
 
-        if [[ "${entry}" != *=* || -z "${key}" || -z "${value}" ]]; then
+        if [[ "${entry}" != *=* || -z "${key_lower}" || -z "${value_lower}" ]]; then
             echo "Invalid --cache rule: ${entry}" >&2
             exit 1
         fi
 
-        case "${key}" in
+        case "${key_lower}" in
             reset|skip-update)
-                set_cache_targets "${key}" "${value}"
+                set_cache_targets "${key_lower}" "${value_lower}"
                 ;;
             *)
                 echo "Unknown --cache rule key: ${key}" >&2
@@ -227,26 +227,27 @@ while [[ $# -gt 0 ]]; do
         --no-scan)          SCAN=false ;;
         --advise|--advice)
             _ADVISE_EXPLICIT=true
-            # Check if next arg looks like an advisement list (no -- prefix)
-            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
-                advisements="$2"; shift
-            else
-                advisements="grype,scout"
-            fi
-            # Parse the comma-delimited list
-            ADVISE_GRYPE=false
+            ADVISE_GRYPE=false # reset defaults, then parse optional list
             ADVISE_SCOUT=false
             ADVISE_DIVE=false
-            IFS=',' read -ra adv_list <<< "$advisements"
-            for adv in "${adv_list[@]}"; do
-                case "$adv" in
-                    grype)  ADVISE_GRYPE=true ;;
-                    scout)  ADVISE_SCOUT=true ;;
-                    dive)   ADVISE_DIVE=true ;;
-                    all)    ADVISE_GRYPE=true; ADVISE_SCOUT=true; ADVISE_DIVE=true ;;
-                    *)      echo "Unknown advisement: $adv" >&2; exit 1 ;;
-                esac
-            done
+            if [[ -n "${2-}" && ! "${2-}" =~ ^-- ]]; then
+                IFS=',' read -ra adv_list <<< "$2"
+                for adv in "${adv_list[@]}"; do
+                    adv="${adv//[[:space:]]/}"
+                    adv="${adv,,}"
+                    case "$adv" in
+                        grype)  ADVISE_GRYPE=true ;;
+                        scout)  ADVISE_SCOUT=true ;;
+                        dive)   ADVISE_DIVE=true ;;
+                        all)    ADVISE_GRYPE=true; ADVISE_SCOUT=true; ADVISE_DIVE=true ;;
+                        *)      echo "Unknown advisement: $adv" >&2; exit 1 ;;
+                    esac
+                done
+                shift
+            else
+                ADVISE_GRYPE=true # default to grype,scout if no list given
+                ADVISE_SCOUT=true
+            fi
             ;;
         --no-advise)
             ADVISE_GRYPE=false
@@ -328,6 +329,9 @@ fi
 if [[ "${CACHE_RESET_GRYPE}" == "true" ]]; then
     echo "==> Cache: reset Grype DB" >&2
     reset_cache_db "${GRYPE_CACHE_VOLUME}"
+fi
+if [[ "${CACHE_SKIP_UPDATE_TRIVY}" == "true" ]]; then
+    echo "==> Cache: Trivy DB update skipped" >&2
 fi
 if [[ "${SCAN}" == "true" && "${CACHE_SKIP_UPDATE_TRIVY}" != "true" ]]; then
     echo "==> Cache: warm Trivy DB" >&2
@@ -453,7 +457,7 @@ fi
 # ---------------------------------------------------------------------------
 _advise_tar=""
 if [[ "${ADVISE_GRYPE}" == "true" ]]; then
-    _advise_tar=$(mktemp /tmp/image-advise-XXXXXX.tar)
+    _advise_tar=$(mktemp /tmp/image-advise-XXXXXX)
     trap 'rm -f "${_advise_tar}"' EXIT
     if [[ "${DRY_RUN}" == "true" ]]; then
         echo "[DRY RUN] docker image save ${full_image}:${VERSION} -o ${_advise_tar}" >&2
@@ -508,7 +512,7 @@ fi
 # ---------------------------------------------------------------------------
 if [[ "${ADVISE_DIVE}" == "true" ]]; then
     echo "==> Stage 5c: Advise (Dive) ${full_image}:${VERSION}" >&2
-    _dive_tar=$(mktemp /tmp/dive-scan-XXXXXX.tar)
+    _dive_tar=$(mktemp /tmp/dive-scan-XXXXXX)
     # shellcheck disable=SC2064
     trap "rm -f '${_dive_tar}'" EXIT
     if [[ "${DRY_RUN}" == "true" ]]; then
