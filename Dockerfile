@@ -21,6 +21,8 @@ ARG ALPINE_TAG=3.21
 FROM alpine:${ALPINE_TAG}
 
 ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
 
 # OCI image annotations (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
 # These are embedded in the image manifest and surfaced by `docker inspect`,
@@ -31,7 +33,10 @@ LABEL org.opencontainers.image.title="pfsense-backup" \
       org.opencontainers.image.source="https://github.com/1121citrus/pfsense-backup" \
       org.opencontainers.image.vendor="1121 Citrus Avenue" \
       org.opencontainers.image.authors="James Hanlon <jim@hanlonsoftware.com>" \
-      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+      org.opencontainers.image.licenses="AGPL-3.0-or-later" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
 
 # Install dependencies and configure the container environment.
 # DL3018: version constraints use '>' (minimum) rather than '=' (exact) by
