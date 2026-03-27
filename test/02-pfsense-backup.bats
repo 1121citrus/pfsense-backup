@@ -97,6 +97,7 @@ teardown() {
 
 @test "name file contains expected filename pattern" {
     TEST_TMPDIR=$(mktemp -d)
+    chmod o+w "${TEST_TMPDIR}"
     run_pfsense_backup \
         -e PFSENSE_BACKUP_NAME_FILE=/name/result \
         -v "${TEST_TMPDIR}:/name" > /dev/null

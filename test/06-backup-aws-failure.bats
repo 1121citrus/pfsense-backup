@@ -41,6 +41,7 @@ teardown() {
 
 @test "healthcheck success marker is not created on aws upload failure" {
     TEST_TMPDIR=$(mktemp -d)
+    chmod o+w "${TEST_TMPDIR}"
     # shellcheck disable=SC2086
     docker run -i --rm ${DOCKER_RUN_ARGS:-} \
         -e "PATH=/test/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
@@ -69,6 +70,7 @@ teardown() {
 
 @test "healthcheck success marker is created on successful backup" {
     TEST_TMPDIR=$(mktemp -d)
+    chmod o+w "${TEST_TMPDIR}"
     # shellcheck disable=SC2086
     docker run -i --rm ${DOCKER_RUN_ARGS:-} \
         -e "PATH=/test/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
