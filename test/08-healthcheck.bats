@@ -9,7 +9,7 @@
 
 # Shell fragments run inside the container to configure crond and cron table.
 CROND_START='crond -l 2 & sleep 0.5'
-CRONTAB_SETUP='mkdir -p /var/spool/cron/crontabs && printf "%s\n" "* * * * * /usr/local/bin/backup 2>&1" > /var/spool/cron/crontabs/root'
+CRONTAB_SETUP='mkdir -p /var/spool/cron/crontabs && printf "%s\n" "* * * * * /usr/local/bin/backup 2>&1" > /var/spool/cron/crontabs/$(id -un)'
 
 setup() {
     IMAGE="${IMAGE:-1121citrus/pfsense-backup:latest}"

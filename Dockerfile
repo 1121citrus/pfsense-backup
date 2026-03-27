@@ -23,6 +23,7 @@ FROM alpine:${ALPINE_TAG}
 ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
+ARG UID=10001
 
 # OCI image annotations (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
 # These are embedded in the image manifest and surfaced by `docker inspect`,
@@ -63,12 +64,17 @@ RUN set -eux; \
         'xz>5.6' \
         'zip>3.0' \
         && \
-    mkdir -pv /root/.gnupg /root/.ssh && \
-    chmod 700 /root/.gnupg /root/.ssh && \
-    touch /root/.gnupg/pubring.kbx && \
-    chmod 600 /root/.gnupg/pubring.kbx && \
+    adduser \
+        --disabled-password --gecos "" --shell "/sbin/nologin" \
+        --uid "${UID}" pfsense-backup && \
+    install -d -m 0700 -o pfsense-backup \
+        /home/pfsense-backup/.gnupg \
+        /home/pfsense-backup/.ssh && \
+    install -m 0600 -o pfsense-backup /dev/null \
+        /home/pfsense-backup/.gnupg/pubring.kbx && \
+    install -d -m 0755 -o pfsense-backup /var/spool/cron/crontabs && \
     rm -fv /usr/local/bin/docker /usr/bin/docker /bin/docker || true && \
-    ln -sfv /run/secrets/pfsense-identity /root/.ssh/pfsense-identity && \
+    ln -sfv /run/secrets/pfsense-identity /home/pfsense-backup/.ssh/pfsense-identity && \
     mkdir --parents --verbose /usr/local/1121citrus/bin && \
     chmod 755 /usr/local/1121citrus/bin && \
     mkdir --parents /usr/local/share/pfsense-backup && \
@@ -82,6 +88,8 @@ COPY --chmod=755 \
     ./src/healthcheck \
     ./src/pfsense-backup \
     /usr/local/bin/
+
+USER pfsense-backup
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD /usr/local/bin/healthcheck
 

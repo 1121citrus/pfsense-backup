@@ -131,9 +131,12 @@ collected or forwarded.
 
 ### Container Privilege
 
-The container runs as **root**.  This is required because Alpine's `crond`
-daemon writes the cron spool under `/var/spool/cron/crontabs/root`.  No
-process inside the container listens on a network port.
+The container runs as the dedicated `pfsense-backup` user (UID 10001, shell
+`/sbin/nologin`).  The crontab is written to
+`/var/spool/cron/crontabs/pfsense-backup`; busybox `crond` reads it as that
+user.  The `~/.gnupg` and `~/.ssh` directories are created in the user's home
+directory (`/home/pfsense-backup`) with mode `700`.  No process inside the
+container listens on a network port.
 
 ---
 

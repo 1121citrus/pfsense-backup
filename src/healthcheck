@@ -99,10 +99,10 @@ function is_crond_running() {
 }
 
 function is_crontab_configured() {
-    # Check that the crontab file exists and contains the expected backup
-    # entry.  An empty or missing file (e.g. startup failed mid-way) is
+    # Check that the current user's crontab contains the expected backup
+    # entry.  An empty or missing crontab (e.g. startup failed mid-way) is
     # treated as unconfigured.
-    if [[ -r /var/spool/cron/crontabs/root ]] && grep -q ' /usr/local/bin/backup 2>&1' /var/spool/cron/crontabs/root; then
+    if crontab -l 2>/dev/null | grep -q ' /usr/local/bin/backup 2>&1'; then
         return 0
     else
         error crontab is not configured
