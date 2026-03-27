@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 
 # sshpass stub: strip sshpass-specific flags and exec the remaining command.
 #

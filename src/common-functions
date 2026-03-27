@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 
 # Common bash functions.
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]

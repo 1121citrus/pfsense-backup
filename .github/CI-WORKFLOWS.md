@@ -12,15 +12,27 @@ Automated linting, building, testing, security scanning, and Docker image public
 | **Scan**       | After build (parallel with tests)     | Trivy image scan — blocks push on fixable CVEs |
 | **Push**       | Version tags and staging branch only  | Multi-platform build and push to Docker Hub    |
 | **Dependabot** | Weekly (Monday 06:00 UTC)             | Keep GitHub Actions versions current           |
+| **Release Please** | Push to main/master                   | Open release PR; create tag and GitHub Release |
 
 ## CI Workflow (`ci.yml`)
 
 Single unified workflow for all CI/CD stages.
 
+### Global configuration
+
+- **Image name:** `1121citrus/pfsense-backup`
+- **Node.js actions runtime:** v24 (via `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`)
+
 ### Trigger Events
 
 - **Push:** `main`, `master`, `staging` branches and `v*` version tags
 - **Pull requests:** `main`, `master` branches
+
+### Concurrency
+
+- **Group:** `<workflow-name>-<ref>` — one concurrent run per workflow + branch/tag
+- **Branches and PRs:** Cancel any in-progress run when a newer one starts
+- **Version tags:** Never cancelled — release builds always complete
 
 ### Versioning
 
@@ -29,7 +41,7 @@ Tag-driven. Push a git tag to publish a release:
 ```bash
 git tag v1.2.3
 git push origin v1.2.3
-# Publishes: 1121citrus/pfsense-backup:1.2.3 + :latest
+# Publishes: 1121citrus/pfsense-backup:1.2.3 + :1.2 + :1 + :latest
 ```
 
 No automation bumps the version — the tag is always a deliberate decision.
@@ -39,18 +51,21 @@ No automation bumps the version — the tag is always a deliberate decision.
 ## Stage 1: Lint
 
 - **Hadolint** — Dockerfile best-practice checks
-- **ShellCheck** — static analysis of `src/` and `test/` shell scripts
-  - `--exclude=SC1090,SC1091,SC2148` — suppresses source-following warnings:
-    SC1090 (dynamic path), SC1091 (absolute install-time path not resolvable at lint time),
-    SC2148 (intentionally sourced library files without a shebang)
+- **ShellCheck** — static analysis (`-x`) of `src/`, `test/`, and `build` scripts
+  - Per-file `# shellcheck disable=SC1090` / `# shellcheck disable=SC1091` directives
+    handle dynamic and install-time source paths inline
 
 ---
 
 ## Stage 2: Build
 
-Builds image for `linux/amd64` (the runner's native platform) and exports as a GitHub Actions artifact (`docker-image`). The image is re-tagged as `:latest` so test scripts that default to `IMAGE:latest` work without modification.
+Builds image for `linux/amd64` (the runner's native platform) and exports as a gzip'd tarball (`/tmp/image.tar.gz`) uploaded as the `docker-image` artifact. The image is re-tagged as `:latest` so test scripts that default to `IMAGE:latest` work without modification. Each downstream job loads the image with `gunzip -c /tmp/image.tar.gz | docker load`.
 
 Artifact retention: 1 day.
+
+**Docker layer cache:** `cache-from: type=gha` / `cache-to: type=gha,mode=max` — build
+layers are saved to and restored from GitHub Actions cache, speeding up incremental
+builds. The push job restores from the same cache.
 
 ---
 
@@ -94,16 +109,17 @@ Runs only when all tests and the scan pass, and only on version tags or the stag
 
 | Trigger           | Docker Hub tags                                         |
 | ----------------- | ------------------------------------------------------- |
-| Tag `v1.2.3`      | `1121citrus/pfsense-backup:1.2.3` + `:latest`           |
-| Push to `staging` | `1121citrus/pfsense-backup:staging-<timestamp>` + `:staging` |
+| Tag `v1.2.3`      | `1121citrus/pfsense-backup:1.2.3` + `:1.2` + `:1` + `:latest`  |
+| Push to `staging` | `1121citrus/pfsense-backup:staging-<sha>` + `:staging`          |
 
 - `:latest` is set **only** on version-tagged releases
-- Staging gets a datetime timestamp for traceability
+- Staging uses a short commit SHA for traceability
 
 ### Build configuration
 
 - **Platforms:** `linux/amd64`, `linux/arm64`
 - **Attestations:** `sbom: true` + `provenance: mode=max` (SLSA L3)
+- **Layer cache:** `cache-from: type=gha` / `cache-to: type=gha,mode=max`
 
 ---
 
@@ -164,3 +180,32 @@ On push/PR
 
 - `./build` supports `--advice` (alias for `--advise`) and `--cache` for one-run scanner cache controls.
 - `test/staging` supports `--scan`, `--no-scan`, `--advise`, and `--no-advise` for live-image validation.
+
+---
+
+## Automated releases (release-please)
+
+`release-please.yml` watches for [conventional commits](https://www.conventionalcommits.org/)
+merged to `main`/`master` and automates the release lifecycle:
+
+1. Opens a "release PR" that bumps `version.txt`, prepends to `CHANGELOG.md`, and proposes the next semver tag
+2. When the release PR is merged, creates a GitHub Release and pushes the version tag
+3. The existing CI `push` job fires on the new tag and builds and publishes the Docker image
+
+### Conventional commit types that trigger version bumps
+
+| Commit prefix | Bump |
+|---|---|
+| `fix:` | patch (1.0.x) |
+| `feat:` | minor (1.x.0) |
+| `feat!:` or `BREAKING CHANGE:` | major (x.0.0) |
+
+All other prefixes (`ci:`, `docs:`, `chore:`, `refactor:`, `test:`, etc.) appear in the
+changelog but do not trigger a version bump on their own.
+
+### Configuration
+
+- `release-please-config.json` — release type (`simple`) and package root
+- `.release-please-manifest.json` — current version (updated by release-please on each release)
+- `version.txt` — plain-text version file (updated by release-please; can be referenced in Dockerfile)
+- `CHANGELOG.md` — generated/updated by release-please

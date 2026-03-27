@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 
 # build — local CI equivalent for pfsense-backup.
 #
@@ -33,12 +34,16 @@
 #                       Also skips advisements (stage 5) by default; pass --advise
 #                       after --no-scan to keep the advisory scans.
 #   --advise [ADVISEMENTS]
-#                       Run advisory scans. Optional comma-delimited list of advisements:
-#                       'grype', 'scout', 'dive', 'all', or any combination, e.g. 'grype,scout,dive'
-#                       (default if no list given: 'grype,scout').
+#                       Run advisory scans. Comma-delimited list:
+#                       'grype', 'scout', 'dive', 'all', 'none', or any
+#                       combination, e.g. 'grype,scout'. 'none' disables
+#                       all advisements (equivalent to --no-advise).
+#                       Default with no list given: 'grype,scout'.
+#                       Advisory scans are off by default.
 #   --advice [ADVISEMENTS]
-#                       Compatibility alias for --advise.
-#   --no-advise         Skip all advisory scans (Grype, Docker Scout, and Dive).
+#                       Synonym for --advise.
+#   --no-advise         Disable all advisory scans (equivalent to
+#                       --advise none).
 #   --cache CACHE_RULES One-run cache controls for scanner DBs.
 #                       Rule format: 'reset=<targets>;skip-update=<targets>'
 #                       Targets: trivy, grype, all (comma-delimited)
@@ -96,8 +101,8 @@ PROVENANCE=true
 LINT=${BUILD_LINT:-true}
 TEST=${BUILD_TEST:-true}
 SCAN=${BUILD_SCAN:-true}
-ADVISE_GRYPE=true
-ADVISE_SCOUT=true
+ADVISE_GRYPE=false
+ADVISE_SCOUT=false
 ADVISE_DIVE=false
 _ADVISE_EXPLICIT=false   # set true when --advise or --no-advise is passed
 CACHE_RESET_TRIVY=false
@@ -177,21 +182,21 @@ parse_cache_rules() {
     for entry in "${_cache_rules[@]}"; do
         key="${entry%%=*}"
         value="${entry#*=}"
-        key="${key//[[:space:]]/}"
-        value="${value//[[:space:]]/}"
+        key_lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+        value_lower=$(echo "$value" | tr '[:upper:]' '[:lower:]')
 
-        if [[ -z "${key}" && -z "${value}" ]]; then
+        if [[ -z "${key_lower}" && -z "${value_lower}" ]]; then
             continue
         fi
 
-        if [[ "${entry}" != *=* || -z "${key}" || -z "${value}" ]]; then
+        if [[ "${entry}" != *=* || -z "${key_lower}" || -z "${value_lower}" ]]; then
             echo "Invalid --cache rule: ${entry}" >&2
             exit 1
         fi
 
-        case "${key}" in
+        case "${key_lower}" in
             reset|skip-update)
-                set_cache_targets "${key}" "${value}"
+                set_cache_targets "${key_lower}" "${value_lower}"
                 ;;
             *)
                 echo "Unknown --cache rule key: ${key}" >&2
@@ -226,26 +231,28 @@ while [[ $# -gt 0 ]]; do
         --no-scan)          SCAN=false ;;
         --advise|--advice)
             _ADVISE_EXPLICIT=true
-            # Check if next arg looks like an advisement list (no -- prefix)
-            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
-                advisements="$2"; shift
-            else
-                advisements="grype,scout"
-            fi
-            # Parse the comma-delimited list
-            ADVISE_GRYPE=false
+            ADVISE_GRYPE=false # reset defaults, then parse optional list
             ADVISE_SCOUT=false
             ADVISE_DIVE=false
-            IFS=',' read -ra adv_list <<< "$advisements"
-            for adv in "${adv_list[@]}"; do
-                case "$adv" in
-                    grype)  ADVISE_GRYPE=true ;;
-                    scout)  ADVISE_SCOUT=true ;;
-                    dive)   ADVISE_DIVE=true ;;
-                    all)    ADVISE_GRYPE=true; ADVISE_SCOUT=true; ADVISE_DIVE=true ;;
-                    *)      echo "Unknown advisement: $adv" >&2; exit 1 ;;
-                esac
-            done
+            if [[ -n "${2-}" && ! "${2-}" =~ ^-- ]]; then
+                IFS=',' read -ra adv_list <<< "$2"
+                for adv in "${adv_list[@]}"; do
+                    adv="${adv//[[:space:]]/}"
+                    adv="${adv,,}"
+                    case "$adv" in
+                        grype)  ADVISE_GRYPE=true ;;
+                        scout)  ADVISE_SCOUT=true ;;
+                        dive)   ADVISE_DIVE=true ;;
+                        all)    ADVISE_GRYPE=true; ADVISE_SCOUT=true; ADVISE_DIVE=true ;;
+                        none)   ADVISE_GRYPE=false; ADVISE_SCOUT=false; ADVISE_DIVE=false ;;
+                        *)      echo "Unknown advisement: $adv" >&2; exit 1 ;;
+                    esac
+                done
+                shift
+            else
+                ADVISE_GRYPE=true # default to grype,scout if no list given
+                ADVISE_SCOUT=true
+            fi
             ;;
         --no-advise)
             ADVISE_GRYPE=false
@@ -328,6 +335,9 @@ if [[ "${CACHE_RESET_GRYPE}" == "true" ]]; then
     echo "==> Cache: reset Grype DB" >&2
     reset_cache_db "${GRYPE_CACHE_VOLUME}"
 fi
+if [[ "${CACHE_SKIP_UPDATE_TRIVY}" == "true" ]]; then
+    echo "==> Cache: Trivy DB update skipped" >&2
+fi
 if [[ "${SCAN}" == "true" && "${CACHE_SKIP_UPDATE_TRIVY}" != "true" ]]; then
     echo "==> Cache: warm Trivy DB" >&2
     run docker run --rm \
@@ -364,14 +374,6 @@ if [[ "${LINT}" == "true" ]]; then
         src/healthcheck \
         src/pfsense-backup \
         src/startup \
-        test/backup-aws-failure \
-        test/backup-encryption \
-        test/backup-required-vars \
-        test/backup-success \
-        test/backup-xml-validation \
-        test/healthcheck \
-        test/build-options \
-        test/pfsense-backup \
         test/run-all \
         test/bin/aws \
         test/bin/ssh \
@@ -424,10 +426,6 @@ if [[ "${TEST}" == "true" ]]; then
     echo "==> Stage 3: Test" >&2
     run chmod +x \
         "${script_dir}/test/run-all" \
-        "${script_dir}/test/build-options" \
-        "${script_dir}/test/backup-"* \
-        "${script_dir}/test/healthcheck" \
-        "${script_dir}/test/pfsense-backup" \
         "${script_dir}/test/staging" \
         "${script_dir}/test/bin/"*
     (cd "${script_dir}" && IMAGE="${full_image}:${VERSION}" run ./test/run-all)
@@ -464,7 +462,7 @@ fi
 # ---------------------------------------------------------------------------
 _advise_tar=""
 if [[ "${ADVISE_GRYPE}" == "true" ]]; then
-    _advise_tar=$(mktemp /tmp/image-advise-XXXXXX.tar)
+    _advise_tar=$(mktemp /tmp/image-advise-XXXXXX)
     trap 'rm -f "${_advise_tar}"' EXIT
     if [[ "${DRY_RUN}" == "true" ]]; then
         echo "[DRY RUN] docker image save ${full_image}:${VERSION} -o ${_advise_tar}" >&2
@@ -519,7 +517,7 @@ fi
 # ---------------------------------------------------------------------------
 if [[ "${ADVISE_DIVE}" == "true" ]]; then
     echo "==> Stage 5c: Advise (Dive) ${full_image}:${VERSION}" >&2
-    _dive_tar=$(mktemp /tmp/dive-scan-XXXXXX.tar)
+    _dive_tar=$(mktemp /tmp/dive-scan-XXXXXX)
     # shellcheck disable=SC2064
     trap "rm -f '${_dive_tar}'" EXIT
     if [[ "${DRY_RUN}" == "true" ]]; then
