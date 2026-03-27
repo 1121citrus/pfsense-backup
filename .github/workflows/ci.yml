@@ -31,11 +31,10 @@ jobs:
     with:
       image: 1121citrus/pfsense-backup
 
-  # ── Stage 3: Tests (parallel) ──────────────────────────────────────────────
-  # One job per test suite so failures are reported individually in the UI.
-  # Each job downloads the shared artifact independently to run in parallel.
+  # ── Stage 3: Test ──────────────────────────────────────────────────────────
+  # All suites run in a single job to avoid 8x artifact download/load overhead.
   # Tests run inside bats/bats:1.13.0 with the Docker socket mounted.
-  test-build:
+  test:
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -43,7 +42,7 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: docker-image, path: /tmp }
       - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: 01-build
+      - name: Run test suites
         run: |
           docker run --rm -i \
             -v "$PWD:$PWD" \
@@ -51,133 +50,14 @@ jobs:
             -e "IMAGE=$IMAGE:latest" \
             --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
             -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats test/01-build.bats"
-
-  test-pfsense-backup:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: docker-image, path: /tmp }
-      - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: 02-pfsense-backup
-        run: |
-          docker run --rm -i \
-            -v "$PWD:$PWD" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e "IMAGE=$IMAGE:latest" \
-            --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
-            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats test/02-pfsense-backup.bats"
-
-  test-required-vars:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: docker-image, path: /tmp }
-      - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: 03-backup-required-vars
-        run: |
-          docker run --rm -i \
-            -v "$PWD:$PWD" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e "IMAGE=$IMAGE:latest" \
-            --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
-            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats test/03-backup-required-vars.bats"
-
-  test-backup-success:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: docker-image, path: /tmp }
-      - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: 04-backup-success
-        run: |
-          docker run --rm -i \
-            -v "$PWD:$PWD" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e "IMAGE=$IMAGE:latest" \
-            --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
-            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats test/04-backup-success.bats"
-
-  test-encryption:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: docker-image, path: /tmp }
-      - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: 05-backup-encryption
-        run: |
-          docker run --rm -i \
-            -v "$PWD:$PWD" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e "IMAGE=$IMAGE:latest" \
-            --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
-            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats test/05-backup-encryption.bats"
-
-  test-aws-failure:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: docker-image, path: /tmp }
-      - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: 06-backup-aws-failure
-        run: |
-          docker run --rm -i \
-            -v "$PWD:$PWD" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e "IMAGE=$IMAGE:latest" \
-            --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
-            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats test/06-backup-aws-failure.bats"
-
-  test-xml-validation:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: docker-image, path: /tmp }
-      - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: 07-backup-xml-validation
-        run: |
-          docker run --rm -i \
-            -v "$PWD:$PWD" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e "IMAGE=$IMAGE:latest" \
-            --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
-            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats test/07-backup-xml-validation.bats"
-
-  test-healthcheck:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: docker-image, path: /tmp }
-      - run: gunzip -c /tmp/image.tar.gz | docker load
-      - name: 08-healthcheck
-        run: |
-          docker run --rm -i \
-            -v "$PWD:$PWD" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e "IMAGE=$IMAGE:latest" \
-            --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
-            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats test/08-healthcheck.bats"
+                && bats test/01-build.bats \
+                       test/02-pfsense-backup.bats \
+                       test/03-backup-required-vars.bats \
+                       test/04-backup-success.bats \
+                       test/05-backup-encryption.bats \
+                       test/06-backup-aws-failure.bats \
+                       test/07-backup-xml-validation.bats \
+                       test/08-healthcheck.bats"
 
   # ── Stage 4: Security scan ─────────────────────────────────────────────────
   scan:
@@ -189,9 +69,7 @@ jobs:
 
   # ── Stage 5: Push to Docker Hub ────────────────────────────────────────────
   push:
-    needs: [test-build, test-pfsense-backup, test-required-vars, test-backup-success,
-            test-encryption, test-xml-validation, test-aws-failure, test-healthcheck,
-            scan]
+    needs: [test, scan]
     if: >
       github.event_name == 'push' && (
         startsWith(github.ref, 'refs/tags/v') ||
