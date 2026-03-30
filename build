@@ -101,6 +101,7 @@ PROVENANCE=true
 LINT=${BUILD_LINT:-true}
 TEST=${BUILD_TEST:-true}
 SCAN=${BUILD_SCAN:-true}
+
 ADVISE_GRYPE=false
 ADVISE_SCOUT=false
 ADVISE_DIVE=false
@@ -110,6 +111,30 @@ CACHE_RESET_GRYPE=false
 CACHE_SKIP_UPDATE_TRIVY=false
 CACHE_SKIP_UPDATE_GRYPE=false
 DRY_RUN=false
+
+# Coverage reporting (kcov via bats-kcov)
+COVERAGE=true
+BATS_KCOV_IMAGE=1121citrus/bats-kcov
+BATS_KCOV_TAG=latest
+# ---------------------------------------------------------------------------
+# Stage 3c: Coverage (kcov — advisory, never blocks)
+# ---------------------------------------------------------------------------
+if [[ "${TEST}" == "true" && "${COVERAGE}" == "true" ]]; then
+    echo "==> Stage 3c: Coverage" >&2
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        echo "[DRY RUN] docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined " >&2
+        echo "[DRY RUN]   -v ${script_dir}:/code:ro -w /code ${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG} bats-coverage test/*" >&2
+    else
+        docker run --rm \
+            --cap-add SYS_PTRACE \
+            --security-opt seccomp=unconfined \
+            -v "${script_dir}:/code:ro" \
+            -w /code \
+            "${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG}" \
+            bats-coverage test/* \
+            >&2 || echo "    Coverage run failed (advisory only)" >&2
+    fi
+fi
 
 IMAGE_NAME=pfsense-backup
 
@@ -350,21 +375,11 @@ fi
 # ---------------------------------------------------------------------------
 # Stage 1: Lint
 # ---------------------------------------------------------------------------
-if [[ "${LINT}" == "true" ]]; then
-    echo "==> Stage 1: Lint" >&2
-
-    echo "    hadolint Dockerfile" >&2
     if [[ "${DRY_RUN}" == "true" ]]; then
-        echo "[DRY RUN] docker run --rm -i hadolint/hadolint < Dockerfile" >&2
-    else
-        docker run --rm -i "${HADOLINT_IMAGE}:${HADOLINT_TAG}" < "${script_dir}/Dockerfile"
-    fi
-
-    echo "    shellcheck src/ test/" >&2
-    # SC1090: can't follow dynamic source paths (common-functions sourced at runtime).
-    # SC1091: source targets not passed as shellcheck inputs (runtime-installed paths).
-    # SC2148: files without a shebang are intentionally sourced libraries.
+        echo "[DRY RUN] docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined \
     (cd "${script_dir}" && run docker run --rm \
+    else
+        docker run --rm \
         -v "${script_dir}:/mnt" \
         "${SHELLCHECK_IMAGE}:${SHELLCHECK_TAG}" \
         --shell=bash \
@@ -373,6 +388,7 @@ if [[ "${LINT}" == "true" ]]; then
         src/common-functions \
         src/healthcheck \
         src/pfsense-backup \
+    fi
         src/startup \
         test/run-all \
         test/bin/aws \
@@ -581,6 +597,33 @@ if [[ "${PUSH}" == "true" ]]; then
         printf '  %s \\\n' "${push_cmd[@]}"
     else
         "${push_cmd[@]}"
+    fi
+fi
+
+
+# ---------------------------------------------------------------------------
+# Stage 3c: Coverage (kcov — advisory, never blocks)
+#
+# Reruns the bats suite through kcov to produce a per-file line-coverage
+# report for src/.  Uses 1121citrus/bats-kcov (kcov + bats + jq pre-bundled).
+# Requires SYS_PTRACE; works on macOS Docker Desktop with the flags below.
+# ---------------------------------------------------------------------------
+if [[ "${TEST}" == "true" && "${COVERAGE}" == "true" ]]; then
+    echo "==> Stage 3c: Coverage" >&2
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        echo "[DRY RUN] docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined \" >&2
+        echo "[DRY RUN]   -v ${script_dir}:/code:ro -w /code ${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG} bats-coverage <test files>" >&2
+    else
+        docker run --rm \
+            --cap-add SYS_PTRACE \
+            --security-opt seccomp=unconfined \
+            -v "${script_dir}:/code:ro" \
+            -w /code \
+            "${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG}" \
+            bats-coverage \
+                test/run-all \
+            >&2 || echo "    Coverage run failed (advisory only)" >&2
     fi
 fi
 
