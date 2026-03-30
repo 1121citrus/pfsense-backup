@@ -99,10 +99,13 @@ function is_crond_running() {
 }
 
 function is_crontab_configured() {
-    # Check that the current user's crontab contains the expected backup
-    # entry.  An empty or missing crontab (e.g. startup failed mid-way) is
-    # treated as unconfigured.
-    if crontab -l 2>/dev/null | grep -q ' /usr/local/bin/backup 2>&1'; then
+    # Read the crontab file directly instead of using `crontab -l`.
+    # busybox crontab requires SUID to run as a non-root user; reading the
+    # file directly avoids that restriction while producing the same result.
+    local crontab_file
+    crontab_file="/var/spool/cron/crontabs/$(id -un)"
+    if [[ -r "${crontab_file}" ]] && \
+            grep -q ' /usr/local/bin/backup 2>&1' "${crontab_file}"; then
         return 0
     else
         error crontab is not configured

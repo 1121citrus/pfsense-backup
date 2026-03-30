@@ -51,7 +51,7 @@
 #                          default: accept-new)
 #      --known-hosts FILE  Known hosts file
 #                          (env: PFSENSE_SSH_KNOWN_HOSTS_FILE;
-#                          default: /root/.ssh/known_hosts)
+#                          default: $HOME/.ssh/known_hosts)
 #
 # ENVIRONMENT
 #   PFSENSE_HOST           pfSense hostname or IP address
@@ -66,7 +66,7 @@
 #   PFSENSE_SSH_STRICT_HOST_KEY_CHECKING
 #                          SSH host-key checking mode (default: accept-new)
 #   PFSENSE_SSH_KNOWN_HOSTS_FILE
-#                          Known hosts file (default: /root/.ssh/known_hosts)
+#                          Known hosts file (default: $HOME/.ssh/known_hosts)
 #   PFSENSE_EXTRA_SSH_ARGS    Additional ssh options (space-separated)
 #   PFSENSE_EXTRA_SSHPASS_ARGS
 #                          Additional sshpass options (space-separated)
@@ -128,7 +128,7 @@ Options:
                          default: accept-new)
      --known-hosts FILE  Known hosts file
                          (env: PFSENSE_SSH_KNOWN_HOSTS_FILE;
-                         default: /root/.ssh/known_hosts)
+                         default: $HOME/.ssh/known_hosts)
 
 Note: The SSH key must be passphrase-protected; sshpass supplies the
 passphrase non-interactively.  See the README for security considerations.
@@ -161,7 +161,7 @@ identity_file="${PFSENSE_IDENTITY_FILE:-/run/secrets/pfsense-identity}"
 password="${PFSENSE_IDENTITY_PASSWORD:-}"
 password_file="${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}"
 strict_host_key_checking="${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
-known_hosts_file="${PFSENSE_SSH_KNOWN_HOSTS_FILE:-/root/.ssh/known_hosts}"
+known_hosts_file="${PFSENSE_SSH_KNOWN_HOSTS_FILE:-${HOME:-/root}/.ssh/known_hosts}"
 
 # Parse arguments.
 while [[ $# -gt 0 ]]; do
@@ -279,7 +279,8 @@ fi
 if [[ "${strict_host_key_checking}" == "no" ]]; then
     known_hosts_arg="UserKnownHostsFile=/dev/null"
 else
-    touch "${known_hosts_file}"
+    touch "${known_hosts_file}" 2>/dev/null || \
+        debug "unable to create '${known_hosts_file}'"
     chmod 600 "${known_hosts_file}" 2>/dev/null || \
         debug "unable to set permissions on '${known_hosts_file}'"
     known_hosts_arg="UserKnownHostsFile=${known_hosts_file}"

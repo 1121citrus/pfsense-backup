@@ -72,7 +72,8 @@ RUN set -eux; \
         /home/pfsense-backup/.ssh && \
     install -m 0600 -o pfsense-backup /dev/null \
         /home/pfsense-backup/.gnupg/pubring.kbx && \
-    install -d -m 0755 -o pfsense-backup /var/spool/cron/crontabs && \
+    chown pfsense-backup /etc/crontabs && \
+    chmod 0700 /etc/crontabs && \
     rm -fv /usr/local/bin/docker /usr/bin/docker /bin/docker || true && \
     ln -sfv /run/secrets/pfsense-identity /home/pfsense-backup/.ssh/pfsense-identity && \
     mkdir --parents --verbose /usr/local/1121citrus/bin && \
