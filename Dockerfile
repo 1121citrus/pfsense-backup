@@ -52,6 +52,7 @@ RUN set -eux; \
         'bash>5.2' \
         'bzip2>1.0' \
         'bzip3>1.3' \
+        'coreutils>9' \
         'gnupg>2.4' \
         'gzip>1.12' \
         'lzop>1.04' \
@@ -60,6 +61,7 @@ RUN set -eux; \
         'pigz>2.8' \
         'pixz>1.0' \
         'sshpass>1.10' \
+        'supercronic>0.2' \
         'traceroute>2.1' \
         'xz>5.6' \
         'zip>3.0' \
@@ -72,8 +74,7 @@ RUN set -eux; \
         /home/pfsense-backup/.ssh && \
     install -m 0600 -o pfsense-backup /dev/null \
         /home/pfsense-backup/.gnupg/pubring.kbx && \
-    chown pfsense-backup /etc/crontabs && \
-    chmod 0700 /etc/crontabs && \
+    install -d -m 0755 -o pfsense-backup /var/spool/cron/crontabs && \
     rm -fv /usr/local/bin/docker /usr/bin/docker /bin/docker || true && \
     ln -sfv /run/secrets/pfsense-identity /home/pfsense-backup/.ssh/pfsense-identity && \
     mkdir --parents --verbose /usr/local/1121citrus/bin && \

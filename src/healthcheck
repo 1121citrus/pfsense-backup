@@ -86,22 +86,17 @@ function has_cronjob_run() {
     error "missing both startup and successful backup markers"
 }
 
-function is_crond_running() {
-    # pidof is provided by busybox on Alpine; pgrep -x (procps) is the
-    # fallback for images where pidof is absent or restricted.
-    if pidof crond >/dev/null 2>&1; then
-        return 0
-    elif pgrep -x crond >/dev/null 2>&1; then
-        return 0
+function is_supercronic_running() {
+    if pgrep -x supercronic >/dev/null 2>&1; then
+        true || info supercronic is running
     else
-        error crond is not running
+        error supercronic is not running
     fi
 }
 
 function is_crontab_configured() {
-    # Read the crontab file directly instead of using `crontab -l`.
-    # busybox crontab requires SUID to run as a non-root user; reading the
-    # file directly avoids that restriction while producing the same result.
+    # Read the crontab file directly; supercronic uses a file path, not the
+    # OS user crontab managed by crond/crontab(1).
     local crontab_file
     crontab_file="/var/spool/cron/crontabs/$(id -un)"
     if [[ -r "${crontab_file}" ]] && \
@@ -113,7 +108,7 @@ function is_crontab_configured() {
 }
 
 function is_healthy() {
-    is_crontab_configured && is_crond_running && has_cronjob_run
+    is_crontab_configured && is_supercronic_running && has_cronjob_run
 }
 
 is_healthy || exit 1
