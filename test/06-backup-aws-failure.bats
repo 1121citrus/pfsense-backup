@@ -71,6 +71,8 @@ teardown() {
 @test "healthcheck success marker is created on successful backup" {
     TEST_TMPDIR=$(mktemp -d)
     chmod o+w "${TEST_TMPDIR}"
+    echo "[DEBUG] TEST_TMPDIR: ${TEST_TMPDIR}"
+    env | sort | grep -E 'AWS|PFSENSE|TEST_TMPDIR|HOSTNAME|TZ'
     # shellcheck disable=SC2086
     docker run -i --rm ${DOCKER_RUN_ARGS:-} \
         -e "PATH=/test/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
@@ -85,6 +87,12 @@ teardown() {
         -v "${WHEREAMI}/fixtures/test-path.sh:/etc/profile.d/test-path.sh:ro" \
         -v "${TEST_TMPDIR}:/tmp/markers" \
         "${IMAGE}" /usr/local/bin/backup >/dev/null 2>&1
+    echo "[DEBUG] after backup, ls -l ${TEST_TMPDIR}:"
+    ls -l "${TEST_TMPDIR}"
+    if [ ! -f "${TEST_TMPDIR}/last-success" ]; then
+        echo "[ERROR] last-success marker not created!"
+        exit 1
+    fi
     echo "marker listing: $(ls -la "${TEST_TMPDIR}/" 2>&1 || true)"
     [ -f "${TEST_TMPDIR}/last-success" ]
 }

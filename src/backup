@@ -24,6 +24,9 @@
 ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
 [[ -r "${ENV}" ]] && source "${ENV}"
+echo "[DEBUG] ENV: ${ENV}"
+env | sort | grep -E 'AWS|PFSENSE|HEALTHCHECK|HOSTNAME|TZ'
+pwd
 
 # shellcheck disable=SC1091
 source /usr/local/bin/common-functions
@@ -38,12 +41,14 @@ command=$(basename "${0}")
 
 # Create a work directory -- to cleanup any debris.
 workdir=$(mktemp -d)
+echo "[DEBUG] workdir: ${workdir}"
 # shellcheck disable=SC2317,SC2329  # invoked indirectly via trap EXIT
 cleanup() {
     rm -rf "${workdir}" >/dev/null 2>&1 || true
 }
 trap 'cleanup' EXIT
 cd "${workdir}"
+pwd
 
 export AWS_CONFIG_FILE="${AWS_CONFIG_FILE:=/run/secrets/aws-config}"
 
@@ -87,7 +92,10 @@ name_file="${workdir}/.backup-name"
 PFSENSE_BACKUP_NAME_FILE="${name_file}" \
     pfsense-backup > "${workdir}/config.xml.tmp" || \
     error "pfsense-backup failed"
+echo "[DEBUG] after pfsense-backup, ls -l ${workdir}:"
+ls -l "${workdir}"
 backup_file=$(cat "${name_file}")
+echo "[DEBUG] backup_file: ${backup_file}"
 
 # Add header comment to the downloaded XML file.  tail -n +2 skips the
 # original <?xml?> declaration so the updated declaration takes its place.
@@ -191,6 +199,8 @@ info "running aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
 aws s3 mv "${awsargs[@]}" "${output_file}" "${uri}" 2>&1 | info || \
     error "aws s3 mv failed uploading '${output_file}' to '${uri}'"
 info "completed aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
+echo "[DEBUG] touching HEALTHCHECK_SUCCESS_FILE: ${HEALTHCHECK_SUCCESS_FILE}"
 touch "${HEALTHCHECK_SUCCESS_FILE}" 2>/dev/null || true
+ls -l "$(dirname "${HEALTHCHECK_SUCCESS_FILE}")"
 info "finish ${command}"
 exit 0

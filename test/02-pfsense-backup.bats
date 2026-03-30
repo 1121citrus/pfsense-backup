@@ -98,9 +98,17 @@ teardown() {
 @test "name file contains expected filename pattern" {
     TEST_TMPDIR=$(mktemp -d)
     chmod o+w "${TEST_TMPDIR}"
+    echo "[DEBUG] TEST_TMPDIR: ${TEST_TMPDIR}"
+    env | sort | grep -E 'PFSENSE|TEST_TMPDIR|HOSTNAME|TZ'
     run_pfsense_backup \
         -e PFSENSE_BACKUP_NAME_FILE=/name/result \
         -v "${TEST_TMPDIR}:/name" > /dev/null
+    echo "[DEBUG] after run_pfsense_backup, ls -l ${TEST_TMPDIR}:"
+    ls -l "${TEST_TMPDIR}"
+    if [ ! -f "${TEST_TMPDIR}/result" ]; then
+        echo "[ERROR] name file not created!"
+        exit 1
+    fi
     local name
     name=$(cat "${TEST_TMPDIR}/result")
     echo "name: ${name}"
