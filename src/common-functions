@@ -55,3 +55,29 @@ function info() {
 function is_true() {
     echo "${1:?Need argument}" | grep -Eiq '^\s*(1|true|t|yes|y)\s*$'
 }
+
+function path-append() {
+    local p="${1%/}"
+    path-remove "${p}" >/dev/null
+    export PATH="${PATH}:${p}"
+    echo "${PATH}"
+}
+
+function path-prepend() {
+    local p="${1%/}"
+    path-remove "${p}" >/dev/null
+    export PATH="${p}:${PATH}"
+    echo "${PATH}"
+}
+
+function path-remove() {
+    local dir="${1%/}" IFS=: result=() p
+    [[ -z "${dir}" ]] && return 1
+    for p in ${PATH}; do
+        [[ "${p}" != "${dir}" ]] && result+=("${p}")
+    done
+    local path="${result[*]}"
+    path="${path#:}"
+    export PATH="${path%:}"
+    echo "${PATH}"
+}

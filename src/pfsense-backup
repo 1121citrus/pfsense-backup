@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Download a pfSense firewall configuration to stdout.
+# Backup pfSense configuration data via CLI or scheduler mode.
 #
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
 #
@@ -21,114 +21,634 @@
 #   pfsense-backup [options]
 #
 # DESCRIPTION
-#   Connects to a pfSense firewall via SSH, downloads the config.xml,
-#   validates required fields, and streams the raw XML to stdout.  All
-#   progress messages go to stderr.
+#   This script supports three execution modes:
+#     1) CLI stdout mode: download config, optionally process it, write to stdout.
+#     2) CLI upload mode: download config, optionally process it, upload to S3.
+#     3) Scheduler mode: write env/crontab files and exec supercronic.
 #
-#   If PFSENSE_BACKUP_NAME_FILE is set to a writable path, the computed
-#   base filename is written there so callers can name the output file
-#   appropriately.
+#   Core workflow: connect via SSH, validate XML metadata, build a safe
+#   timestamped name, optionally compress/encrypt, then stream or upload.
+#   All progress messages go to stderr.
 #
-# OPTIONS
-#   -?,--help              Display this help text
-#   -v,--version           Display command version
-#   -H,--host HOST         pfSense hostname or IP
-#                          (env: PFSENSE_HOST; fallback: TAILSCALE_HOST,
-#                          first-hop gateway via traceroute)
-#   -u,--user USER         SSH username (env: PFSENSE_USER;
-#                          default: remote-backup)
-#   -i,--identity-file FILE
-#                          Private key file (env: PFSENSE_IDENTITY_FILE;
-#                          default: /run/secrets/pfsense-identity)
-#   -p,--password PW       Key passphrase (env: PFSENSE_IDENTITY_PASSWORD)
-#   -P,--password-file FILE
-#                          Passphrase file
-#                          (env: PFSENSE_IDENTITY_PASSWORD_FILE;
-#                          default: /run/secrets/pfsense-identity-password)
-#      --strict-host-key-checking MODE
-#                          SSH host-key checking mode: yes, accept-new, no
-#                          (env: PFSENSE_SSH_STRICT_HOST_KEY_CHECKING;
-#                          default: accept-new)
-#      --known-hosts FILE  Known hosts file
-#                          (env: PFSENSE_SSH_KNOWN_HOSTS_FILE;
-#                          default: $HOME/.ssh/known_hosts)
+#   Note: this file keeps a compact command reference for quick reading.
+#   The canonical user-facing help text is in show_help().
 #
-# ENVIRONMENT
-#   PFSENSE_HOST           pfSense hostname or IP address
-#   PFSENSE_USER           SSH username (default: remote-backup)
-#   PFSENSE_IDENTITY_FILE  Private key file
-#                          (default: /run/secrets/pfsense-identity)
-#   PFSENSE_IDENTITY_PASSWORD
-#                          Key passphrase (warning: visible in process table)
-#   PFSENSE_IDENTITY_PASSWORD_FILE
-#                          Path to passphrase file
-#                          (default: /run/secrets/pfsense-identity-password)
-#   PFSENSE_SSH_STRICT_HOST_KEY_CHECKING
-#                          SSH host-key checking mode (default: accept-new)
-#   PFSENSE_SSH_KNOWN_HOSTS_FILE
-#                          Known hosts file (default: $HOME/.ssh/known_hosts)
-#   PFSENSE_EXTRA_SSH_ARGS    Additional ssh options (space-separated)
-#   PFSENSE_EXTRA_SSHPASS_ARGS
-#                          Additional sshpass options (space-separated)
-#   TAILSCALE_HOST         Fallback hostname when PFSENSE_HOST is unset
-#   PFSENSE_BACKUP_NAME_FILE
-#                          Path to write the computed base filename
-#   DEBUG                  Enable debug tracing (default: false)
-#   ENV                    Env-file path (default: ~/.env)
+# QUICK REFERENCE
+#   Common CLI paths:
+#     - stdout one-shot: pfsense-backup [connection options]
+#     - S3 one-shot:     pfsense-backup --bucket BUCKET [...]
+#     - scheduler mode:  pfsense-backup --cron [--cron-expression EXPR]
 #
-# EXAMPLES
-#   # Download pfSense configuration to a file:
-#   pfsense-backup --host firewall \
-#       --identity-file ~/.ssh/remote-backup.ed25519 \
-#       --password-file secret-pw > config.xml
+#   Main option groups:
+#     - connection: host, user, identity, passphrase, host-key handling
+#     - processing: compression and optional GPG encryption
+#     - upload: bucket selection and AWS CLI configuration
+#     - scheduler: cron expression and retention knobs
 #
-#   # One-shot backup via docker run:
-#   docker run --rm \
-#       -e PFSENSE_HOST=firewall \
-#       -v ./secrets/pfsense-identity:/run/secrets/pfsense-identity:ro \
-#       -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
-#       1121citrus/pfsense-backup pfsense-backup > config.xml
-
-command=$(basename "${0}")
+#   Canonical details for all options, env vars, and examples are in
+#   show_help() below.
 
 # shellcheck disable=SC1091
-source /usr/local/bin/common-functions
+# Allow tests to override the include dir via INCLUDE_DIR env var
+source "${INCLUDE_DIR:-/usr/local/include}/common-functions"
 
-ENV=${ENV:-${HOME:-/root}/.env}
-set -o errexit -o errtrace -o nounset -o pipefail
+HOME=${HOME:-/$(id -un)}
+if [[ -d "${HOME}" ]]; then
+    export HOME
+else
+    warn "home directory '${HOME}' does not exist; using '/'"
+    export HOME=/
+fi
+
+ENV=${ENV:-${HOME}/.env}
 # shellcheck disable=SC1090
 [[ -r "${ENV}" ]] && source "${ENV}"
-is_true "${DEBUG:=false}" && set -o xtrace -o verbose
 
-show_help() {
+if command -v readlink >/dev/null 2>&1 && readlink -f "$(dirname "${0}")" >/dev/null 2>&1; then
+    bindir=$(readlink -f "$(dirname "${0}")")
+else
+    bindir=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd -P)
+fi
+echo "${PATH}" | grep -qF "${bindir}" || export PATH="${bindir}:${PATH}"
+
+set -o errexit -o errtrace -o nounset -o pipefail # Ensure robust error handling
+is_true "${DEBUG:-false}" && set -o verbose -o xtrace # Enable debug output if DEBUG is set
+
+# Allow tests to override command and log file locations (mocks)
+export AWS_CMD="${AWS_CMD:-aws}"
+export PFSENSE_BACKUP_CMD="${PFSENSE_BACKUP_CMD:-/usr/local/bin/pfsense-backup}"
+export PFSENSE_LOG_DIR="${PFSENSE_LOG_DIR:-/var/log/pfsense-backup}"
+export PFSENSE_LOG_FILE="${PFSENSE_LOG_FILE:-${PFSENSE_LOG_DIR}/pfsense-backup.log}"
+
+
+function cleanup() {
+    # Remove temporary work directories on exit.
+    rm -rf "${WORKDIR:-}" >/dev/null 2>&1 || true
+}
+
+function clean_credentials() {
+    # clean_credentials redacts sensitive values before logging the .env
+    # contents.  GPG_PASSPHRASE and PFSENSE_IDENTITY_PASSWORD are replaced with
+    # **REDACTED** so secrets are never written to Docker logs.
+    sed -E 's/(GPG_PASSPHRASE|PFSENSE_IDENTITY_PASSWORD)='"'"'.*'"'"'$/\1='"'**REDACTED**'"'/'
+}
+
+function confirm_live_run() {
+    # Interactive confirmation gate for CLI mode with DRYRUN=false.
+    # Skipped automatically when:
+    #   - DRYRUN=true (no uploads will occur)
+    #   - stdin is not a tty (scripted / Docker / CI context)
+    #   - YES=true (--yes flag or env var)
+    is_true "${DRYRUN:-false}" && return 0
+    [[ -t 0 ]] || return 0
+    is_true "${YES:-false}" && return 0
+
+    warn "DRYRUN=false — this run will write S3 objects!!!"
+    echo "" >&2
+    echo "  Buckets:   ${BUCKET_LIST}" >&2
+    echo "" >&2
+    printf 'Type "yes" to proceed, or press Enter to abort: ' >&2
+    local response
+    read -r response
+    echo "" >&2
+    [[ "${response}" == "yes" ]] || error "aborted by user"
+}
+
+function create_environment() {
+    # Emit the env file consumed by supercronic-invoked jobs to stdout.
+    # Use printf '%q' for every value so that values containing quotes,
+    # parentheses, braces, or other shell-special characters are safely escaped.
+    # CRON_EXPRESSION is explicitly unset so cron jobs do not re-enter
+    # scheduler mode recursively.
+    # DRYRUN is the active runtime switch in this script; AWS_DRYRUN is kept as
+    # a compatibility export for downstream tooling and existing environments.
+    printf 'export AWS_CONFIG_FILE=%q\n'           "${AWS_CONFIG_FILE:-/run/secrets/aws-config}"
+    printf 'export AWS_DRYRUN=%q\n'                "${AWS_DRYRUN:-false}"
+    printf 'export AWS_EXTRA_ARGS=%q\n'            "${AWS_EXTRA_ARGS:-}"
+    printf 'export AWS_S3_BUCKET_NAME=%q\n'        "${AWS_S3_BUCKET_NAME:-}"
+    printf 'export BUCKET=%q\n'                    "${BUCKET:-}"
+    printf 'export BUCKET_LIST=%q\n'               "${BUCKET_LIST:-}"
+    printf 'export COMPRESSION=%q\n'               "${COMPRESSION:-none}"
+    printf 'export DAILY=%q\n'                     "${DAILY:-7}"
+    printf 'export DEBUG=%q\n'                     "${DEBUG:-false}"
+    printf 'export DRYRUN=%q\n'                    "${DRYRUN:-false}"
+    printf 'export HOURLY=%q\n'                    "${HOURLY:-24}"
+    printf 'export MONTHLY=%q\n'                   "${MONTHLY:-6}"
+    printf 'export WEEKLY=%q\n'                    "${WEEKLY:-4}"
+    printf 'export YEARLY=%q\n'                    "${YEARLY:-always}"
+    printf 'export GPG_CIPHER_ALGO=%q\n'           "${GPG_CIPHER_ALGO:-aes256}"
+    printf 'export GPG_PASSPHRASE=%q\n'            "${GPG_PASSPHRASE:-}"
+    printf 'export GPG_PASSPHRASE_FILE=%q\n'       "${GPG_PASSPHRASE_FILE:-/run/secrets/gpg-passphrase}"
+    printf 'export HEALTHCHECK_MAX_AGE_SECONDS=%q\n' "${HEALTHCHECK_MAX_AGE_SECONDS:-172800}"
+    printf 'export HEALTHCHECK_STARTUP_FILE=%q\n'  "${HEALTHCHECK_STARTUP_FILE:-/tmp/pfsense-backup.started-at}"
+    printf 'export HEALTHCHECK_STARTUP_GRACE_SECONDS=%q\n' "${HEALTHCHECK_STARTUP_GRACE_SECONDS:-900}"
+    printf 'export HEALTHCHECK_SUCCESS_FILE=%q\n'  "${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}"
+    printf 'export PFSENSE_HOST=%q\n'               "${PFSENSE_HOST:-}"
+    printf 'export PFSENSE_USER=%q\n'               "${PFSENSE_USER:-}"
+    printf 'export PFSENSE_IDENTITY_FILE=%q\n'      "${PFSENSE_IDENTITY_FILE:-/run/secrets/pfsense-identity}"
+    printf 'export PFSENSE_IDENTITY_PASSWORD=%q\n'  "${PFSENSE_IDENTITY_PASSWORD:-}"
+    printf 'export PFSENSE_IDENTITY_PASSWORD_FILE=%q\n' "${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}"
+    printf 'export PFSENSE_SSH_KNOWN_HOSTS_FILE=%q\n'  "${PFSENSE_SSH_KNOWN_HOSTS_FILE:-/root/.ssh/known_hosts}"
+    printf 'export PFSENSE_SSH_STRICT_HOST_KEY_CHECKING=%q\n' "${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
+    printf 'export RSA_PUBLIC_KEY_FILE=%q\n'        "${RSA_PUBLIC_KEY_FILE:-/run/secrets/rsa-public-key}"
+    printf 'export TAILSCALE_HOST=%q\n'             "${TAILSCALE_HOST:-}"
+    printf 'export TZ=%q\n'                         "${TZ:-UTC}"
+    printf 'unset CRON_EXPRESSION\n'
+}
+
+function resolve_host() {
+    # Input: preferred host. Output: resolved host on stdout.
+    # Host resolution priority: CLI flag > PFSENSE_HOST > TAILSCALE_HOST >
+    # detected internal gateway. The traceroute probe is a last-resort fallback.
+    local preferred_host="${1:-}"
+    local resolved_host="${preferred_host}"
+    if [[ -z "${resolved_host}" ]]; then
+        resolved_host=$(traceroute -m 1 1.1.1.1 2>/dev/null \
+            | head -1 \
+            | sed -E 's/.* [(]([^)]*)[)].*/\1/' || true)
+    fi
+    [[ -n "${resolved_host}" ]] || \
+        error 'need PFSENSE_HOST, TAILSCALE_HOST, or --host / -H'
+    printf '%s\n' "${resolved_host}"
+}
+
+function build_gpg_config() {
+    # Input: passphrase, passphrase_file, cipher_algo.
+    # Output (tab-separated): encrypt_flag, cipher_algo, mode, secret_value.
+    local passphrase="${1:-}"
+    local passphrase_file="${2:-/run/secrets/gpg-passphrase}"
+    local cipher_algo="${3:-aes256}"
+
+    if [[ -n "${passphrase}" ]]; then
+        printf 'true\t%s\tpassphrase\t%s\n' "${cipher_algo}" "${passphrase}"
+        return 0
+    fi
+
+    if [[ -r "${passphrase_file}" ]]; then
+        chmod 600 "${passphrase_file}" 2>/dev/null || \
+            debug "unable to set permissions on '${passphrase_file}' (read-only mount?)"
+        printf 'true\t%s\tpassphrase-file\t%s\n' "${cipher_algo}" "${passphrase_file}"
+        return 0
+    fi
+
+    printf 'false\t%s\tnone\t\n' "${cipher_algo}"
+}
+
+function download_config() {
+    # Input:
+    #   1 workdir
+    #   2 identity_file
+    #   3 user
+    #   4 host
+    #   5 identity_password
+    #   6 identity_password_file
+    #   7 strict_host_key_checking
+    #   8 known_hosts_file
+    #   9 extra_ssh_args
+    #  10 extra_sshpass_args
+    #  11 debug_flag (true/false)
+    # Output: downloaded config path on stdout.
+    local workdir="${1:?Need workdir}"
+    local identity_file="${2:?Need identity file}"
+    local ssh_user="${3:?Need user}"
+    local ssh_host="${4:?Need host}"
+    local identity_password="${5:-}"
+    local identity_password_file="${6:-/run/secrets/pfsense-identity-password}"
+    local strict_host_key_checking="${7:-accept-new}"
+    local known_hosts_file="${8:-${HOME}/.ssh/known_hosts}"
+    local extra_ssh_args="${9:-}"
+    local extra_sshpass_args="${10:-}"
+    local debug_flag="${11:-false}"
+
+    # Why copy the identity key:
+    # OpenSSH rejects key files that are too permissive. Docker secrets and
+    # read-only mounts can prevent chmod in-place, so the key is copied to a
+    # writable temp path and set to 0600 there.
+    # Use a local copy so the source identity_file is not overwritten; multi-
+    # bucket loops call pfsense_backup() repeatedly and must be able to read
+    # the original file for every iteration.
+    local identity_tmp="${workdir}/identity.key"
+    cp -- "${identity_file}" "${identity_tmp}"
+    chmod 600 "${identity_tmp}"
+
+    local sshpass_args=(-P passphrase)
+    if [[ -n "${identity_password}" ]]; then
+        sshpass_args+=(-p "${identity_password}")
+    elif [[ -r "${identity_password_file}" ]]; then
+        sshpass_args+=(-f "${identity_password_file}")
+    else
+        error 'need PFSENSE_IDENTITY_PASSWORD, --password, or --password-file (default: /run/secrets/pfsense-identity-password)'
+    fi
+    if [[ -n "${extra_sshpass_args}" ]]; then
+        local sshpass_extra_args_arr
+        read -r -a sshpass_extra_args_arr <<< "${extra_sshpass_args}"
+        sshpass_args+=("${sshpass_extra_args_arr[@]}")
+    fi
+
+    local known_hosts_arg
+    if [[ "${strict_host_key_checking}" == "no" ]]; then
+        known_hosts_arg="UserKnownHostsFile=/dev/null"
+    else
+        touch "${known_hosts_file}"
+        chmod 600 "${known_hosts_file}" 2>/dev/null || \
+            debug "unable to set permissions on '${known_hosts_file}'"
+        known_hosts_arg="UserKnownHostsFile=${known_hosts_file}"
+    fi
+
+    local ssh_args=(
+        -F /dev/null
+        -T
+        -o LogLevel=quiet
+        -o "StrictHostKeyChecking=${strict_host_key_checking}"
+        -o "${known_hosts_arg}"
+    )
+    if [[ -n "${extra_ssh_args}" ]]; then
+        local ssh_extra_args_arr
+        read -r -a ssh_extra_args_arr <<< "${extra_ssh_args}"
+        ssh_args+=("${ssh_extra_args_arr[@]}")
+    fi
+    if is_true "${debug_flag}"; then
+        ssh_args=(-v "${ssh_args[@]}")
+        sshpass_args=(-v "${sshpass_args[@]}")
+    fi
+
+    local config_tmp="${workdir}/config.xml"
+    local ssh_stderr="${workdir}/ssh-stderr.txt"
+    if ! sshpass "${sshpass_args[@]}" ssh "${ssh_args[@]}" \
+        -l "${ssh_user}" \
+        -i "${identity_tmp}" \
+        "${ssh_host}" > "${config_tmp}" 2>"${ssh_stderr}"; then
+        debug "ssh configuration download failed for user='${ssh_user}' PFSENSE_HOST='${ssh_host}'"
+        # Log any output from ssh/sshpass — even LogLevel=quiet emits fatal
+        # errors (host not found, auth failure, connection refused) to stderr.
+        # Set DEBUG=true for full verbose ssh output (-v).
+        if [[ -s "${ssh_stderr}" ]]; then
+            while IFS= read -r line; do
+                debug "ssh: ${line}"
+            done < "${ssh_stderr}"
+        fi
+        error "configuration download failed"
+    fi
+
+    printf '%s\n' "${config_tmp}"
+}
+
+function validate_xml_metadata() {
+    # Input: config path and workdir.
+    # Output (tab-separated): backup_file and output_file.
+    local config_tmp="${1:?Need config path}"
+    local workdir="${2:?Need workdir}"
+
+    # Extract and validate metadata from the downloaded XML.  grep -m1 stops at
+    # the first match (each field appears once near the top of the file); cut
+    # carves out the text content between the opening and closing tags.
+    local version hostname domain
+    version=$(grep -m1 '<version' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
+    [[ -n "${version}" ]] || error 'invalid pfSense configuration file - missing version'
+    hostname=$(grep -m1 '<hostname' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
+    [[ -n "${hostname}" ]] || error 'invalid pfSense configuration file - missing hostname'
+    domain=$(grep -m1 '<domain' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
+    [[ -n "${domain}" ]] || error 'invalid pfSense configuration file - missing domain'
+    # Sanitize values extracted from XML before embedding them in the filename.
+    # Allow only alphanumeric characters, hyphens, underscores, and dots.  Any
+    # other character (including path separators) is replaced with a hyphen.
+    # This prevents directory traversal and filename injection via a crafted
+    # config file.
+    hostname="${hostname//[^a-zA-Z0-9._-]/-}"
+    version="${version//[^a-zA-Z0-9._-]/-}"
+    backup_file="$(date +%Y%m%dT%H%M%S)-${hostname}-pfsense-v${version}-config-backup.xml"
+    # Write the computed base filename to the sidecar file when requested.
+    # Callers (e.g. the old backup script) use this to name the output file.
+    [[ -n "${PFSENSE_BACKUP_NAME_FILE:-}" ]] && \
+        printf '%s' "${backup_file}" > "${PFSENSE_BACKUP_NAME_FILE}"
+    # Add header comment to the downloaded XML file.  tail -n +2 skips the
+    # original <?xml?> declaration so the updated declaration takes its place.
+    (echo '<?xml version="1.0" encoding="UTF-8"?>' && \
+    echo "<!-- ${backup_file} -->" && \
+    tail -n +2 "${config_tmp}") > "${workdir}/${backup_file}"
+
+    local output_file="${workdir}/${backup_file}"
+    printf '%s\t%s\n' "${backup_file}" "${output_file}"
+}
+
+function compress_backup() {
+    # Input: output_file and compression setting.
+    # Output: resulting output_file path on stdout.
+    local output_file="${1:?Need output file}"
+    local compression="${2:-none}"
+
+    # All compression is stdin→stdout to avoid creating an extra copy of the
+    # (potentially large) XML file in the workdir alongside the compressed output.
+    case "${compression}" in
+        bzip | bzip2)
+            info "compressing backup with bzip2: ${output_file}.bz2"
+            bzip2 -9 --keep --quiet --stdout <"${output_file}" >"${output_file}.bz2"
+            output_file="${output_file}.bz2"
+            ;;
+
+        bzip3)
+            info "compressing backup with bzip3: ${output_file}.bz3"
+            bzip3 --stdout <"${output_file}" >"${output_file}.bz3"
+            output_file="${output_file}.bz3"
+            ;;
+
+        gz | gzip)
+            info "compressing backup with gzip --best --no-name --quiet --synchronous: ${output_file}.gz"
+            gzip --best --no-name --quiet --synchronous <"${output_file}" >"${output_file}.gz"
+            output_file="${output_file}.gz"
+            ;;
+
+        lzo | lzop)
+            info "compressing backup with lzop: ${output_file}.lzo"
+            lzop <"${output_file}" >"${output_file}.lzo"
+            output_file="${output_file}.lzo"
+            ;;
+
+        none)
+            true
+            ;;
+
+        lzma | xz)
+            info "compressing backup with lzma/xz --compress --extreme --quiet: ${output_file}.xz"
+            xz --compress --extreme --quiet <"${output_file}" >"${output_file}.xz"
+            output_file="${output_file}.xz"
+            ;;
+
+        pigz)
+            info "compressing backup with pigz --best --no-name --quiet --synchronous: ${output_file}.pgz"
+            pigz --best --no-name --quiet --synchronous <"${output_file}" >"${output_file}.pgz"
+            output_file="${output_file}.pgz"
+            ;;
+
+        pixz)
+            info "compressing backup with pixz -9 -t: ${output_file}.pxz"
+            pixz -9 -t <"${output_file}" >"${output_file}.pxz"
+            output_file="${output_file}.pxz"
+            ;;
+
+        zip)
+            info "compressing backup with zip -q -9: ${output_file}.zip"
+            zip -q -9 "${output_file}.zip" "${output_file}"
+            output_file="${output_file}.zip"
+            ;;
+
+        *)
+            error "unknown compression algorithm: '${compression}'"
+            ;;
+    esac
+
+    printf '%s\n' "${output_file}"
+}
+
+function deliver_backup() {
+    # Upload output_file to S3, or write to stdout.
+    # Args: upload_to_aws output_file backup_file bucket
+    local upload_to_aws="${1:-false}"
+    local output_file="${2:?Need output file}"
+    local backup_file="${3:?Need backup file}"
+    local bucket="${4:-}"
+
+    if [[ "${upload_to_aws}" == "true" ]]; then
+        [[ -n "${bucket}" ]] || error "need --bucket or BUCKET to upload to S3"
+
+        "${AWS_CMD}" s3api head-bucket --bucket "${bucket}" 2>/dev/null || \
+            error "bucket '${bucket}' does not exist or is not accessible with the provided AWS credentials"
+
+        confirm_live_run
+
+        local awsargs uri
+        awsargs=(--no-progress)
+        is_true "${DRYRUN:-false}" && awsargs+=(--dryrun)
+
+        info "begin mv '${output_file}' to S3 bucket '${bucket}'"
+        uri="s3://${bucket}/$(basename "${output_file}")"
+        info "running aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
+        # aws s3 mv uploads the file then deletes the local copy on success, which
+        # prevents archives from accumulating in the workdir across cron runs.
+        # Pipe aws output through info for structured logging.  With set -o pipefail
+        # a non-zero aws exit propagates through the pipeline; the || branch fires
+        # only on failure and provides a clear error message before the script exits.
+        # Upload must complete successfully before continuing this path.
+        "${AWS_CMD}" s3 mv "${awsargs[@]}" "${output_file}" "${uri}" 2>&1 | info || \
+            error "aws s3 mv failed uploading '${output_file}' to '${uri}'"
+        info "completed aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
+    else
+        info "backup '${backup_file}': writing '${output_file}' to stdout"
+        cat "${output_file}"
+    fi
+}
+
+function pfsense_backup() {
+    local bucket="${1:-}"
+    local command
+    local resolved_host
+    local gpg_encrypt gpg_cipher gpg_mode gpg_secret
+    local config_tmp backup_file output_file
+    local _xml_info
+
+    command="${PFSENSE_BACKUP_COMMAND:-$(basename "${0}" 2>/dev/null || echo "${0##*/}" 2>/dev/null || true)}"
+    [[ -n "${command}" ]] || command="pfsense-backup"
+
+    info "begin ${command}"
+
+    resolved_host=$(resolve_host "${PFSENSE_HOST:-}")
+
+    # Validate identity file.
+    [[ -n "${IDENTITY_FILE}" ]] || \
+        error 'need PFSENSE_IDENTITY_FILE or --identity-file (default: /run/secrets/pfsense-identity)'
+    [[ -r "${IDENTITY_FILE}" ]] || \
+        error "'${IDENTITY_FILE}' not found or is not readable"
+
+    IFS=$'\t' read -r gpg_encrypt gpg_cipher gpg_mode gpg_secret <<< "$(build_gpg_config "${GPG_PASSPHRASE:-}" "${GPG_PASSPHRASE_FILE:-/run/secrets/gpg-passphrase}" "${GPG_CIPHER_ALGO:-aes256}")"
+
+    config_tmp=$(download_config \
+        "${WORKDIR}" \
+        "${IDENTITY_FILE}" \
+        "${PFSENSE_USER}" \
+        "${resolved_host}" \
+        "${password:-}" \
+        "${PFSENSE_IDENTITY_PASSWORD_FILE}" \
+        "${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING}" \
+        "${PFSENSE_SSH_KNOWN_HOSTS_FILE}" \
+        "${PFSENSE_EXTRA_SSH_ARGS:-}" \
+        "${PFSENSE_EXTRA_SSHPASS_ARGS:-}" \
+        "${DEBUG:-false}")
+
+    _xml_info=$(validate_xml_metadata "${config_tmp}" "${WORKDIR}")
+    IFS=$'\t' read -r backup_file output_file <<< "${_xml_info}"
+
+    [[ -n "${PFSENSE_BACKUP_NAME_FILE:-}" ]] && \
+        printf '%s' "${backup_file}" > "${PFSENSE_BACKUP_NAME_FILE}"
+
+    output_file=$(compress_backup "${output_file}" "${COMPRESSION:-none}")
+
+    if "${gpg_encrypt}"; then
+        info "encrypting backup with GPG"
+        if [[ "${gpg_mode}" == "passphrase" ]]; then
+            gpg --symmetric --cipher-algo "${gpg_cipher}" --batch \
+                --passphrase "${gpg_secret}" \
+                --output "${output_file}.gpg" "${output_file}"
+        elif [[ "${gpg_mode}" == "passphrase-file" ]]; then
+            gpg --symmetric --cipher-algo "${gpg_cipher}" --batch \
+                --passphrase-file "${gpg_secret}" \
+                --output "${output_file}.gpg" "${output_file}"
+        else
+            error "invalid gpg mode '${gpg_mode}'"
+        fi
+        output_file="${output_file}.gpg"
+    fi
+
+    info "downloaded '${backup_file}' to '${output_file}'"
+
+    deliver_backup "${UPLOAD_TO_AWS}" "${output_file}" "${backup_file}" "${bucket}"
+
+    # Mark successful completion for health checks.
+    # Current behavior marks success for both upload and stdout paths.
+    touch "${HEALTHCHECK_SUCCESS_FILE}" 2>/dev/null || true
+
+    info "finish ${command}"
+}
+
+function run_scheduler() {
+    # Enter scheduler mode: write env file, install crontab, exec supercronic.
+    # CRON_EXPRESSION is intentionally omitted from the written env file so
+    # that the supercronic-invoked pfsense-backup runs in CLI mode rather
+    # than re-entering scheduler mode.
+    # Usage:
+    #   run_scheduler CRON_EXPR
+    # Arguments:
+    #   CRON_EXPR: cron schedule expression (e.g. "@daily", "0 4 * * *")
+    local cron_expr="${1:?Need cron expression}"
+
+    info "entering scheduler mode (${cron_expr})"
+
+    # Validate bucket config before committing to background operation.
+    [[ -n "${BUCKET_LIST}" ]] || \
+        error "need to specify either BUCKET or BUCKET_LIST to upload backups in scheduler mode"
+
+    ENV=${ENV:-${HOME}/.env}
+    touch "${ENV}"
+    chmod 0600 "${ENV}"
+    create_environment > "${ENV}"
+    info "wrote env file ${ENV}"
+    { clean_credentials | info; } < "${ENV}"
+    # shellcheck disable=SC1090
+    source "${ENV}"
+
+    # Ensure log directory exists
+    (mkdir -pv "${PFSENSE_LOG_DIR}" \
+        && chmod 0755 "${PFSENSE_LOG_DIR}" \
+        && touch "${PFSENSE_LOG_FILE}") | info
+
+    # Install the crontab entry
+    local cmd="${PFSENSE_BACKUP_CMD:-/usr/local/bin/pfsense-backup}"
+    info "installing cron entry: ${cron_expr} ${cmd}"
+    local _crontab
+    _crontab="/var/spool/cron/crontabs/$(id -un)"
+    {
+        # Pin shell for supercronic jobs so inherited SHELL values from
+        # runtime environments (for example /bin/zsh on macOS) cannot break
+        # command execution inside the container.
+        printf 'SHELL=/bin/sh\n'
+        printf 'PATH=%s\n' "${PATH}"
+        printf '%s %s\n' "${cron_expr}" "${cmd}"
+    } > "${_crontab}"
+    chmod 0644 "${_crontab}"
+    info "crontab: $(cat "${_crontab}")"
+
+    info "handing off to supercronic"
+    exec supercronic "${_crontab}"
+}
+
+function show_help() {
+    # Display usage information.
     cat <<'EOF'
 Usage: pfsense-backup [options]
 
 Download a pfSense firewall configuration to stdout.
 
 Options:
-  -?,--help              Display this help text
-  -v,--version           Display command version
-  -H,--host HOST         pfSense hostname or IP
-                         (env: PFSENSE_HOST; fallback: TAILSCALE_HOST,
-                         first-hop gateway via traceroute)
-  -u,--user USER         SSH username (env: PFSENSE_USER;
-                         default: remote-backup)
-  -i,--identity-file FILE
-                         Private key file (env: PFSENSE_IDENTITY_FILE;
-                         default: /run/secrets/pfsense-identity)
-  -p,--password PW       Key passphrase (env: PFSENSE_IDENTITY_PASSWORD)
-  -P,--password-file FILE
-                         Passphrase file
-                         (env: PFSENSE_IDENTITY_PASSWORD_FILE;
-                         default: /run/secrets/pfsense-identity-password)
-     --strict-host-key-checking MODE
-                         SSH host-key checking mode: yes, accept-new, no
-                         (env: PFSENSE_SSH_STRICT_HOST_KEY_CHECKING;
-                         default: accept-new)
-     --known-hosts FILE  Known hosts file
-                         (env: PFSENSE_SSH_KNOWN_HOSTS_FILE;
-                         default: $HOME/.ssh/known_hosts)
+
+    -?,-h,--help           Display this help text
+    -v,--version           Display command version
+    --build-date           Show build date
+    --git-commit           Show git commit hash
+
+    Firewall connection options (each has env var fallback; see below):
+    -H,--host HOST         pfSense hostname or IP
+                           (env: PFSENSE_HOST; fallback: TAILSCALE_HOST,
+                           first-hop gateway via traceroute)
+    -u,--user USER         SSH username (env: PFSENSE_USER;
+                           default: remote-backup)
+    -i,--identity-file FILE
+                           Private key file (env: PFSENSE_IDENTITY_FILE;
+                           default: /run/secrets/pfsense-identity)
+    -p,--password PW       Key passphrase (env: PFSENSE_IDENTITY_PASSWORD)
+    -P,--password-file FILE
+                           Passphrase file
+                           (env: PFSENSE_IDENTITY_PASSWORD_FILE;
+                           default: /run/secrets/pfsense-identity-password)
+    --strict-host-key-checking MODE
+                           SSH host-key checking mode: yes, accept-new, no
+                           (env: PFSENSE_SSH_STRICT_HOST_KEY_CHECKING;
+                           default: accept-new)
+    --known-hosts FILE     Known hosts file (env: PFSENSE_SSH_KNOWN_HOSTS_FILE;
+                           default: /root/.ssh/known_hosts)
+
+    Scheduler mode (any one triggers async/periodic execution):
+    -c,--cron                        Enter scheduler mode using CRON_EXPRESSION
+                                     (default: @daily)
+    --cron-expression EXPR           Enter scheduler mode with schedule EXPR
+                                     (env: CRON_EXPRESSION; implies --cron)
+
+    Backup policy (each flag implies scheduler mode):
+    --hourly N                       Hourly backups to keep
+                                     (env: HOURLY; default: 24)
+    --daily N                        Daily backups to keep
+                                     (env: DAILY; default: 7)
+    --weekly N                       Weekly backups to keep
+                                     (env: WEEKLY; default: 4)
+    --monthly N                      Monthly backups to keep
+                                     (env: MONTHLY; default: 6)
+    --yearly N                       Yearly backups to keep
+                                     (env: YEARLY; default: always)
+
+    AWS configuration:
+    --aws-config FILE                AWS config file
+                                     (env: AWS_CONFIG_FILE;
+                                     default: /run/secrets/aws-config)
+    --aws-extra-args ARGS            Extra args appended to every aws call
+                                     (env: AWS_EXTRA_ARGS)
+    --pfsense-backup-extra-args ARGS Extra args appended to every
+                                     pfsense-backup invocation
+                                     (env: PFSENSE_BACKUP_EXTRA_ARGS)
+
+Environment variables:
+    AWS_CONFIG_FILE        AWS configuration file
+    AWS_EXTRA_ARGS         Additional aws CLI arguments
+    BUCKET                 Single S3 bucket to rotate
+    BUCKET_LIST            Space-separated list of buckets
+    CRON_EXPRESSION        Schedule for --cron mode (default: @daily)
+    DAILY                  Daily backups to keep (default: 7)
+    DEBUG                  Enable bash -x tracing (default: false)
+    ENV                    Env-file path (default: ~/.env)
+    PFSENSE_EXTRA_SSH_ARGS    Additional ssh options (space-separated)
+    PFSENSE_EXTRA_SSHPASS_ARGS
+                          Additional sshpass options (space-separated)
+    PFSENSE_HOST           pfSense hostname or IP address
+    PFSENSE_IDENTITY_FILE  Private key file
+                          (default: /run/secrets/pfsense-identity)
+    PFSENSE_IDENTITY_PASSWORD
+                          Key passphrase (warning: visible in process table)
+    PFSENSE_IDENTITY_PASSWORD_FILE
+                          Path to passphrase file
+                          (default: /run/secrets/pfsense-identity-password)
+    PFSENSE_SSH_STRICT_HOST_KEY_CHECKING
+                          SSH host-key checking mode (default: accept-new)
+    PFSENSE_SSH_KNOWN_HOSTS_FILE
+                          Known hosts file (default: /root/.ssh/known_hosts)
+    PFSENSE_USER           SSH username (default: remote-backup)
+    TAILSCALE_HOST         Fallback hostname when PFSENSE_HOST is unset
 
 Note: The SSH key must be passphrase-protected; sshpass supplies the
 passphrase non-interactively.  See the README for security considerations.
@@ -148,223 +668,261 @@ Examples:
 EOF
 }
 
-show_version() {
+function show_build_date() {
+    cat /usr/local/share/pfsense-backup/build_date 2>/dev/null || echo "unknown"
+}
+
+function show_git_commit() {
+    cat /usr/local/share/pfsense-backup/git_commit 2>/dev/null || echo "unknown"
+}
+
+function show_version() {
     cat /usr/local/share/pfsense-backup/version 2>/dev/null || echo "unknown"
 }
 
 # Defaults from environment.
 # Host resolution: CLI -H flag > PFSENSE_HOST > TAILSCALE_HOST > traceroute
 # (traceroute fallback is applied after option parsing)
-host="${PFSENSE_HOST:-${TAILSCALE_HOST:-}}"
-user="${PFSENSE_USER:-remote-backup}"
-identity_file="${PFSENSE_IDENTITY_FILE:-/run/secrets/pfsense-identity}"
+PFSENSE_HOST="${PFSENSE_HOST:-${TAILSCALE_HOST:-}}"
+PFSENSE_USER="${PFSENSE_USER:-remote-backup}"
+IDENTITY_FILE="${PFSENSE_IDENTITY_FILE:-/run/secrets/pfsense-identity}"
 password="${PFSENSE_IDENTITY_PASSWORD:-}"
-password_file="${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}"
-strict_host_key_checking="${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
-known_hosts_file="${PFSENSE_SSH_KNOWN_HOSTS_FILE:-${HOME:-/root}/.ssh/known_hosts}"
+PFSENSE_IDENTITY_PASSWORD_FILE="${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}"
+PFSENSE_SSH_STRICT_HOST_KEY_CHECKING="${PFSENSE_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
+PFSENSE_SSH_KNOWN_HOSTS_FILE="${PFSENSE_SSH_KNOWN_HOSTS_FILE:-${HOME}/.ssh/known_hosts}"
+# AWS_S3_BUCKET_NAME is the legacy single-bucket env var (used by the old
+# backup script and by tests); BUCKET and BUCKET_LIST are the canonical names.
+BUCKET="${BUCKET:-${AWS_S3_BUCKET_NAME:-}}"
+BUCKET_LIST="${BUCKET_LIST:-}"
+HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}"
 
-# Parse arguments.
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -\?|--help)
-            show_help
-            exit 0
-            ;;
-        -v|--version)
-            show_version
-            exit 0
-            ;;
-        -H|--host)
-            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
-            host="$2"
-            shift
-            ;;
-        -u|--user)
-            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
-            user="$2"
-            shift
-            ;;
-        -i|--identity-file)
-            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
-            identity_file="$2"
-            shift
-            ;;
-        -p|--password)
-            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
-            password="$2"
-            shift
-            ;;
-        -P|--password-file)
-            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
-            password_file="$2"
-            shift
-            ;;
-        --strict-host-key-checking)
-            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
-            strict_host_key_checking="$2"
-            shift
-            ;;
-        --known-hosts)
-            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
-            known_hosts_file="$2"
-            shift
-            ;;
-        --)
-            shift
-            break
-            ;;
-        -*)
-            error "unknown option: '${1}'"
-            ;;
-        *)
-            error "unexpected argument: '${1}'"
-            ;;
-    esac
-    shift
-done
+# ---------------------------------------------------------------------------
+# CLI argument parsing — flags override env defaults above.
+# ---------------------------------------------------------------------------
+function parse_args() {
+    # Parse CLI arguments, overriding env-var defaults.
+    # Must capture CRON_EXPRESSION env state before parsing — a pre-set
+    # CRON_EXPRESSION (env var, not CLI flag) implies scheduler mode.
+    local _cron_expression_from_env=false
+    [[ -v CRON_EXPRESSION ]] && _cron_expression_from_env=true
 
-# Host resolution priority: CLI flag > PFSENSE_HOST > TAILSCALE_HOST >
-# detected internal gateway.  The traceroute probe is a last-resort
-# fallback for bare-metal / VM deployments where the firewall IP is the
-# first hop — it runs only when neither env var is set.
-if [[ -z "${host}" ]]; then
-    host=$(traceroute -m 1 1.1.1.1 2>/dev/null \
-        | head -1 \
-        | sed -E 's/.* [(]([^)]*)[)].*/\1/' || true)
-fi
-[[ -n "${host}" ]] || \
-    error 'need PFSENSE_HOST, TAILSCALE_HOST, or --host / -H'
+    CRON_MODE=false
+    _bucket_set=false
+    _bucket_list_set=false
 
-# Validate identity file.
-[[ -n "${identity_file}" ]] || \
-    error 'need PFSENSE_IDENTITY_FILE or --identity-file (default: /run/secrets/pfsense-identity)'
-[[ -r "${identity_file}" ]] || \
-    error "'${identity_file}' not found or is not readable"
+    # If aws configuration options are given the backup is uploaded to AWS and not
+    # written to stdout.  This flag is used to gate the AWS upload logic and;
+    # importantly, to determine whether to confirm with the user before running when
+    # DRYRUN=false.  If no AWS options are given, the backup is written to stdout
+    UPLOAD_TO_AWS=false
 
-# Resolve passphrase.  have_password holds 'true' or 'false' as shell
-# commands (exit code 0/1).  The pattern "${have_password} || error ..."
-# executes the stored command and branches on its exit code.
-have_password=false
-sshpass_args=(-P passphrase)
-if [[ -n "${password}" ]]; then
-    # sshpass -p passes the passphrase as a command-line argument, which is
-    # briefly visible in /proc/<pid>/cmdline while sshpass is running.
-    # Prefer --password-file (Docker secret) for production.
-    sshpass_args+=(-p "${password}")
-    have_password=true
-elif [[ -r "${password_file}" ]]; then
-    # sshpass -f reads the passphrase from a file — never appears in cmdline.
-    # sshpass does not enforce any particular file permissions, so no chmod needed.
-    sshpass_args+=(-f "${password_file}")
-    have_password=true
-fi
-${have_password} || error \
-    'need PFSENSE_IDENTITY_PASSWORD, --password, or --password-file (default: /run/secrets/pfsense-identity-password)'
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            # Display help/version/build date/git commit info and exit
+            -\?|-h|--help)
+                show_help
+                exit 0
+                ;;
+            -v|--version)
+                show_version
+                exit 0
+                ;;
+            --build-date)
+                show_build_date
+                exit 0
+                ;;
+            --git-commit)
+                show_git_commit
+                exit 0
+                ;;
 
-if [[ -n "${PFSENSE_EXTRA_SSHPASS_ARGS:=}" ]]; then
-    read -r -a sshpass_extra_args <<< "${PFSENSE_EXTRA_SSHPASS_ARGS}"
-    sshpass_args+=("${sshpass_extra_args[@]}")
-fi
+            # pfSense connection options
+            -H|--host)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                PFSENSE_HOST="$2"
+                shift
+                ;;
+            -u|--user)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                PFSENSE_USER="$2"
+                shift
+                ;;
+            -i|--identity-file)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                IDENTITY_FILE="$2"
+                shift
+                ;;
+            -p|--password)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                password="$2"
+                shift
+                ;;
+            -P|--password-file)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                PFSENSE_IDENTITY_PASSWORD_FILE="$2"
+                shift
+                ;;
+            --strict-host-key-checking)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                PFSENSE_SSH_STRICT_HOST_KEY_CHECKING="$2"
+                shift
+                ;;
+            --known-hosts)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                PFSENSE_SSH_KNOWN_HOSTS_FILE="$2"
+                shift
+                ;;
 
-# SSH option rationale:
-#   -F /dev/null               — ignore ~/.ssh/config; local settings must
-#                                not interfere with the container session
-#   -T                         — no PTY; pfSense's backup user runs a
-#                                command, not an interactive shell
-#   LogLevel=quiet             — suppress banner/MOTD noise on stdout
-#   StrictHostKeyChecking      — default accept-new: trust on first
-#                                connect, reject changed keys thereafter
-#   UserKnownHostsFile         — persist the known-hosts across runs so
-#                                key changes are detected
-if [[ "${strict_host_key_checking}" == "no" ]]; then
-    known_hosts_arg="UserKnownHostsFile=/dev/null"
-else
-    touch "${known_hosts_file}" 2>/dev/null || \
-        debug "unable to create '${known_hosts_file}'"
-    chmod 600 "${known_hosts_file}" 2>/dev/null || \
-        debug "unable to set permissions on '${known_hosts_file}'"
-    known_hosts_arg="UserKnownHostsFile=${known_hosts_file}"
-fi
-ssh_args=(
-    -F /dev/null
-    -T
-    -o LogLevel=quiet
-    -o "StrictHostKeyChecking=${strict_host_key_checking}"
-    -o "${known_hosts_arg}"
-)
-if [[ -n "${PFSENSE_EXTRA_SSH_ARGS:-}" ]]; then
-    read -r -a ssh_extra_args <<< "${PFSENSE_EXTRA_SSH_ARGS}"
-    ssh_args+=("${ssh_extra_args[@]}")
-fi
+            # Dry-run and confirmation flags
+            --dryrun)
+                DRYRUN=true
+                ;;
+            --no-dryrun)
+                DRYRUN=false
+                ;;
+            --yes|-y)
+                YES=true
+                ;;
 
-if is_true "${DEBUG}"; then
-    ssh_args=(-v "${ssh_args[@]}")
-    sshpass_args=(-v "${sshpass_args[@]}")
-fi
+            # Scheduler mode triggers
+            -c|--cron)
+                CRON_MODE=true
+                ;;
+            --cron-expression)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                CRON_EXPRESSION="${2}"; CRON_MODE=true; shift
+                ;;
+            --hourly)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                HOURLY="${2}"; CRON_MODE=true; shift
+                ;;
+            --daily)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                DAILY="${2}"; CRON_MODE=true; shift
+                ;;
+            --weekly)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                WEEKLY="${2}"; CRON_MODE=true; shift
+                ;;
+            --monthly)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                MONTHLY="${2}"; CRON_MODE=true; shift
+                ;;
+            --yearly)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                YEARLY="${2}"; CRON_MODE=true; shift
+                ;;
 
-info "begin ${command}"
+            # AWS configuration
+            -b|--bucket)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                BUCKET="${2}"; _bucket_set=true; shift
+                UPLOAD_TO_AWS=true
+                ;;
+            --bucket-list)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                BUCKET_LIST="${2}"; _bucket_list_set=true; shift
+                UPLOAD_TO_AWS=true
+                ;;
+            --aws-config)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                AWS_CONFIG_FILE="${2}"; shift
+                UPLOAD_TO_AWS=true
+                ;;
+            --aws-extra-args)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                AWS_EXTRA_ARGS="${2}"; shift
+                UPLOAD_TO_AWS=true
+                ;;
 
-# Create a work directory for download validation.
-workdir=$(mktemp -d)
-# shellcheck disable=SC2317  # invoked indirectly via trap EXIT
-cleanup() {
-    rm -rf "${workdir}" >/dev/null 2>&1 || true
-}
-trap 'cleanup' EXIT
+            # Postprocessing configuration
+            --compression)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                COMPRESSION="${2}"; shift
+                ;;
+            --gpg-cipher-algo)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                GPG_CIPHER_ALGO="${2}"; shift
+                ;;
+            --gpg-passphrase)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                GPG_PASSPHRASE="${2}"; shift
+                ;;
+            --gpg-passphrase-file)
+                [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+                GPG_PASSPHRASE_FILE="${2}"; shift
+                ;;
 
-# Copy the identity file into the workdir so ssh always receives a key
-# with permissions 0600.  Docker secrets and read-only bind-mounts present
-# the file as immutable; copying to a writable path prevents OpenSSH from
-# rejecting the key with "UNPROTECTED PRIVATE KEY FILE".
-identity_tmp="${workdir}/identity.key"
-cp -- "${identity_file}" "${identity_tmp}"
-chmod 600 "${identity_tmp}"
-identity_file="${identity_tmp}"
+            # Unrecognized options
+            --)
+                shift
+                break
+                ;;
+            -*)
+                error "unknown option: '${1}'"
+                ;;
+            *)
+                error "unexpected argument: '${1}'"
+                ;;
+        esac
+        shift
+    done
 
-config_tmp="${workdir}/config.xml"
-ssh_stderr="${workdir}/ssh-stderr.txt"
-if ! sshpass "${sshpass_args[@]}" ssh "${ssh_args[@]}" \
-    -l "${user}" \
-    -i "${identity_file}" \
-    "${host}" > "${config_tmp}" 2>"${ssh_stderr}"; then
-    debug "ssh configuration download failed for user='${user}' host='${host}'"
-    # Log any output from ssh/sshpass — even LogLevel=quiet emits fatal
-    # errors (host not found, auth failure, connection refused) to stderr.
-    # Set DEBUG=true for full verbose ssh output (-v).
-    if [[ -s "${ssh_stderr}" ]]; then
-        while IFS= read -r line; do
-            debug "ssh: ${line}"
-        done < "${ssh_stderr}"
+    CRON_EXPRESSION=${CRON_EXPRESSION:=@daily}
+    # CRON_EXPRESSION set in the environment (not just the compiled-in default)
+    # implies scheduler mode, same as passing --cron or --cron-expression.
+    if "${_cron_expression_from_env}"; then
+        CRON_MODE=true
     fi
-    error "configuration download failed"
+}
+
+function derive_bucket_list() {
+    # Derive BUCKET_LIST and UPLOAD_TO_AWS from parsed bucket options and env.
+    # If --bucket was given but --bucket-list was not, derive BUCKET_LIST from BUCKET.
+    # CLI --bucket overrides BUCKET set from env.
+    if "${_bucket_set}" && ! "${_bucket_list_set}"; then
+        BUCKET_LIST="${BUCKET}"
+    fi
+    # BUCKET from env (or AWS_S3_BUCKET_NAME) activates S3 upload mode even
+    # without CLI flags — preserves backwards-compat with the old backup script.
+    if [[ -n "${BUCKET}" ]] && ! "${_bucket_list_set}"; then
+        BUCKET_LIST="${BUCKET}"
+    fi
+    [[ -n "${BUCKET_LIST}" ]] && UPLOAD_TO_AWS=true
+    export BUCKET BUCKET_LIST CRON_EXPRESSION
+}
+
+parse_args "$@"
+derive_bucket_list
+
+# ---------------------------------------------------------------------------
+# Dispatch summary:
+#   - CRON_MODE=true  -> run_scheduler (execs supercronic, does not return)
+#   - UPLOAD_TO_AWS   -> loop over BUCKET_LIST and upload to each bucket
+#   - otherwise       -> one CLI run that writes to stdout
+# ---------------------------------------------------------------------------
+
+if [[ "${CRON_MODE}" == "true" ]]; then
+    # run_scheduler writes the env file and execs supercronic — never returns.
+    run_scheduler "${CRON_EXPRESSION}"
 fi
 
-# Extract and validate metadata from the downloaded XML.  grep -m1 stops at
-# the first match (each field appears once near the top of the file); cut
-# carves out the text content between the opening and closing tags.
-version=$(grep -m1 '<version' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
-[[ -n "${version}" ]] || error 'invalid pfSense configuration file - missing version'
-hostname=$(grep -m1 '<hostname' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
-[[ -n "${hostname}" ]] || error 'invalid pfSense configuration file - missing hostname'
-domain=$(grep -m1 '<domain' "${config_tmp}" | cut -f2 -d">" | cut -f1 -d"<" || true)
-[[ -n "${domain}" ]] || error 'invalid pfSense configuration file - missing domain'
+WORKDIR=$(mktemp -d)
+trap cleanup EXIT
 
-# Sanitize values extracted from XML before embedding them in the filename.
-# Allow only alphanumeric characters, hyphens, underscores, and dots.  Any
-# other character (including path separators) is replaced with a hyphen.
-# This prevents directory traversal and filename injection via a crafted
-# config file.
-hostname="${hostname//[^a-zA-Z0-9._-]/-}"
-version="${version//[^a-zA-Z0-9._-]/-}"
-backup_file="$(date +%Y%m%dT%H%M%S)-${hostname}-pfsense-v${version}-config-backup.xml"
-
-# Write the suggested filename to the sidecar file if requested, so the
-# service wrapper (backup) can name the output without re-parsing the XML.
-if [[ -n "${PFSENSE_BACKUP_NAME_FILE:=}" ]]; then
-    printf '%s' "${backup_file}" > "${PFSENSE_BACKUP_NAME_FILE}"
+if [[ "${UPLOAD_TO_AWS}" == "true" ]]; then
+    [[ -n "${BUCKET_LIST}" ]] || \
+        error "need to specify either --bucket or --bucket-list to upload to S3"
+    confirm_live_run
+    # BUCKET_LIST is intentionally space-delimited; bucket names are expected
+    # to be plain bucket identifiers without spaces.
+    for bucket in ${BUCKET_LIST}; do
+        info "begin firewall '${PFSENSE_HOST}' backup to '${bucket}' bucket"
+        pfsense_backup "${bucket}"
+        info "completed firewall '${PFSENSE_HOST}' backup to '${bucket}' bucket"
+        cleanup
+        WORKDIR=$(mktemp -d)
+    done
+else
+    pfsense_backup ""
 fi
-
-info "streaming config: ${backup_file}"
-cat "${config_tmp}"
-
-info "finish ${command}"

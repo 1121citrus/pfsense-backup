@@ -6,7 +6,7 @@ The test suite has two layers:
 
 | Layer | Location | Requires live systems | Run in CI |
 |---|---|---|---|
-| Unit / integration | `test/backup-*`, `test/healthcheck` | No | Yes |
+| Automated stubbed suites | `test/01-build.bats` through `test/12-multi-bucket.bats` | No | Yes |
 | Staging | `test/staging` | Yes — real pfSense, real AWS | No |
 
 ---
@@ -28,18 +28,24 @@ Or via the build script (lint + build + test + scan):
 ### Individual test files
 
 ```bash
-./test/backup-required-vars    # required-variable validation
-./test/build-options           # build + staging option coverage
-./test/backup-success          # successful backup, all compression modes
-./test/backup-encryption       # GPG encryption paths
-./test/backup-xml-validation   # XML field extraction and filename sanitization
-./test/backup-aws-failure      # aws s3 mv failure detection and marker behavior
-./test/healthcheck             # all healthcheck scenarios
+# Suites that run in CI
+bats test/01-build.bats
+bats test/02-pfsense-backup.bats
+bats test/03-backup-required-vars.bats
+bats test/04-backup-success.bats
+bats test/05-backup-encryption.bats
+bats test/06-backup-aws-failure.bats
+bats test/07-backup-xml-validation.bats
+bats test/08-healthcheck.bats
+bats test/09-image-metadata.bats
+bats test/10-pfsense-backup-cli-flags.bats
+bats test/11-scheduler-mode.bats
+bats test/12-multi-bucket.bats
 ```
 
 ### How the tests work
 
-Each test file runs `docker run` against the image, binding `test/bin/` over
+Each `.bats` file runs `docker run` against the image, binding `test/bin/` over
 `/usr/local/bin` via `PATH` prepend.  Stub scripts in `test/bin/` replace
 `ssh`, `sshpass`, `aws`, and `traceroute`, so no real network access or AWS
 credentials are needed.
@@ -61,7 +67,7 @@ IMAGE=1121citrus/pfsense-backup:1.2.3 ./test/run-all
 ### CI
 
 The automated suite runs in GitHub Actions on every push and pull request.
-See `.github/workflows/ci.yml`.  Staging tests are excluded from CI because
+See `.github/workflows/ci.yml`. Staging tests are excluded from CI because
 they require live credentials and external systems.
 
 ---
@@ -86,14 +92,15 @@ test/staging [options] [IMAGE]
 | `IMAGE` (positional) | `IMAGE` | Image to test |
 | `--image IMAGE` | `IMAGE` | Image to test (alternative to positional) |
 | `--host HOST` | `PFSENSE_HOST` | pfSense hostname or IP |
+| `--user USER` | `PFSENSE_USER` | SSH username (default: `remote-backup`) |
 | `--identity-file FILE` | `PFSENSE_IDENTITY_FILE` | SSH identity (private key) file |
 | `--identity-password PASS` | `PFSENSE_IDENTITY_PASSWORD` | SSH key passphrase (or a readable file path, treated as `--identity-password-file`) |
 | `--identity-password-file FILE` | `PFSENSE_IDENTITY_PASSWORD_FILE` | File containing the SSH key passphrase |
 | `--compression FORMAT` | `COMPRESSION` | Backup compression format |
 | `--bucket BUCKET` | `AWS_S3_BUCKET_NAME` | Target S3 bucket |
 | `--aws-config FILE` | `AWS_CONFIG_FILE` | AWS CLI config file (alternative to inline key/secret) |
-| `--dryrun` | `AWS_DRYRUN=true` | Enable S3 dry-run (no real writes) |
-| `--no-dryrun` | `AWS_DRYRUN=false` | Disable S3 dry-run (write real objects) |
+| `--dryrun` | `DRYRUN=true` | Enable S3 dry-run (no real writes) |
+| `--no-dryrun` | `DRYRUN=false` | Disable S3 dry-run (write real objects) |
 | `--scan` | `STAGING_SCAN=true` | Run Trivy scan (default) |
 | `--no-scan` | `STAGING_SCAN=false` | Skip Trivy scan; implies `--no-advise` unless `--advise` is set |
 | `--advise [LIST]` | `STAGING_ADVISE=true` | Run advisory scans (`grype`, `scout`, `dive`, `all`) |
@@ -221,6 +228,11 @@ test/staging --test test_staging_cron_fires \
 | `backup` with missing `PFSENSE_HOST` exits non-zero | Image only |
 | `backup` with missing identity file exits non-zero | Image only |
 | `backup` with no credential exits non-zero | Image only |
+| Healthcheck exits 0 when crontab configured, supercronic running, and fresh backup marker present | Image only |
+| Healthcheck exits non-zero when crontab is missing | Image only |
+| Healthcheck exits non-zero when supercronic is not running | Image only |
+| Healthcheck exits 0 within startup grace period (no backup yet) | Image only |
+| Healthcheck exits non-zero when backup marker is too old | Image only |
 | Downloads config XML from live pfSense | Live pfSense |
 | Backup filename contains hostname and version from XML | Live pfSense |
 | End-to-end backup completes (SSH + upload) | Live pfSense + AWS |

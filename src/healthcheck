@@ -22,7 +22,7 @@ ENV=${ENV:-${HOME:-/root}/.env}
 [[ -r "${ENV}" ]] && source "${ENV}"
 
 # shellcheck disable=SC1091
-source /usr/local/bin/common-functions
+source "${INCLUDE_DIR:-/usr/local/include}/common-functions"
 
 set -o errexit -o errtrace -o nounset -o pipefail
 set +o xtrace +o verbose
@@ -100,7 +100,7 @@ function is_crontab_configured() {
     local crontab_file
     crontab_file="/var/spool/cron/crontabs/$(id -un)"
     if [[ -r "${crontab_file}" ]] && \
-            grep -q ' /usr/local/bin/backup 2>&1' "${crontab_file}"; then
+            grep -q '/usr/local/bin/pfsense-backup' "${crontab_file}"; then
         return 0
     else
         error crontab is not configured

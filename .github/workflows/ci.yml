@@ -51,13 +51,17 @@ jobs:
             --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
             -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
                 && bats test/01-build.bats \
-                       test/02-pfsense-backup.bats \
-                       test/03-backup-required-vars.bats \
-                       test/04-backup-success.bats \
-                       test/05-backup-encryption.bats \
-                       test/06-backup-aws-failure.bats \
-                       test/07-backup-xml-validation.bats \
-                       test/08-healthcheck.bats"
+                        test/02-pfsense-backup.bats \
+                        test/03-backup-required-vars.bats \
+                        test/04-backup-success.bats \
+                        test/05-backup-encryption.bats \
+                        test/06-backup-aws-failure.bats \
+                        test/07-backup-xml-validation.bats \
+                        test/08-healthcheck.bats \
+                        test/09-image-metadata.bats \
+                        test/10-pfsense-backup-cli-flags.bats \
+                        test/11-scheduler-mode.bats \
+                        test/12-multi-bucket.bats"
 
   # ── Stage 4: Security scan ─────────────────────────────────────────────────
   scan:

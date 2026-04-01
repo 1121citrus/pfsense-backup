@@ -9,7 +9,7 @@ for pfsense-backup.
 | ----- | ------- | ------- |
 | **Lint** | All pushes, PRs to main/master, tags | Validate Dockerfile and shell scripts |
 | **Build** | After lint | Build image and share as artifact |
-| **Tests** | After build (8 jobs, parallel) | Run each test suite independently |
+| **Tests** | After build | Run all automated Bats suites in one job |
 | **Scan** | After build (parallel with tests) | Trivy image scan — blocks push on fixable CVEs |
 | **Push** | Version tags and staging branch only | Multi-platform build and push to Docker Hub |
 | **Dependabot** | Weekly (Monday 06:00 UTC) | Keep GitHub Actions versions current |
@@ -19,7 +19,8 @@ for pfsense-backup.
 
 Lint, Build, Scan, and Push delegate to shared reusable workflows in
 [1121citrus/shared-github-workflows](https://github.com/1121citrus/shared-github-workflows).
-The 8 parallel test jobs are defined inline because they are specific to this repo.
+The repo-specific test job is defined inline because it loads the built image
+artifact and runs the full Bats suite directly.
 
 ### Global configuration
 
@@ -62,23 +63,26 @@ artifact. Re-tagged as `:latest`. Artifact retention: 1 day.
 
 ---
 
-## Stage 3: Tests (parallel)
+## Stage 3: Tests
 
-Eight inline jobs run simultaneously after build, each in its own `bats/bats:1.13.0`
-container with the Docker socket mounted:
+One inline job runs after build inside `bats/bats:1.13.0` with the Docker
+socket mounted. The job downloads the shared image artifact, loads it into the
+local Docker daemon, and executes all automated suites:
 
-| Job | Test file | What it tests |
+| Suite | Test file | What it tests |
 | --- | --------- | ------------- |
-| `test-build` | `test/01-build.bats` | Image build assertions |
-| `test-pfsense-backup` | `test/02-pfsense-backup.bats` | Core backup flow |
-| `test-required-vars` | `test/03-backup-required-vars.bats` | Required environment variables |
-| `test-backup-success` | `test/04-backup-success.bats` | Successful backup operation |
-| `test-encryption` | `test/05-backup-encryption.bats` | Backup encryption |
-| `test-aws-failure` | `test/06-backup-aws-failure.bats` | AWS upload error handling |
-| `test-xml-validation` | `test/07-backup-xml-validation.bats` | pfSense XML config validity |
-| `test-healthcheck` | `test/08-healthcheck.bats` | Container health check |
-
-Each job downloads the shared artifact independently to maximize parallelism.
+| `build` | `test/01-build.bats` | Image build assertions |
+| `pfsense-backup` | `test/02-pfsense-backup.bats` | Core backup flow |
+| `required-vars` | `test/03-backup-required-vars.bats` | Required environment variables |
+| `backup-success` | `test/04-backup-success.bats` | Successful backup operation |
+| `encryption` | `test/05-backup-encryption.bats` | Backup encryption |
+| `aws-failure` | `test/06-backup-aws-failure.bats` | AWS upload error handling |
+| `xml-validation` | `test/07-backup-xml-validation.bats` | pfSense XML config validity |
+| `healthcheck` | `test/08-healthcheck.bats` | Container health check |
+| `image-metadata` | `test/09-image-metadata.bats` | OCI label and build-arg wiring |
+| `cli-flags` | `test/10-pfsense-backup-cli-flags.bats` | Extended CLI flag coverage |
+| `scheduler-mode` | `test/11-scheduler-mode.bats` | Scheduler entry and handoff behavior |
+| `multi-bucket` | `test/12-multi-bucket.bats` | Multi-bucket and dry-run behavior |
 
 ---
 
@@ -91,7 +95,7 @@ CRITICAL/HIGH scan before push. Fails and blocks push on fixable CVEs.
 
 ## Stage 5: Push to Docker Hub
 
-Shared workflow: `push.yml` — runs only when all 8 test jobs and the scan pass,
+Shared workflow: `push.yml` — runs only when the test job and the scan pass,
 and only on version tags or the staging branch.
 
 ### Tagging
@@ -116,12 +120,10 @@ On push/PR
 [Lint] — shared: hadolint + shellcheck + markdownlint
     ↓
 [Build] — shared: single-arch image → artifact
-    ↓ (parallel — 9 jobs)
-[test-build]         [test-pfsense-backup]   [test-required-vars]
-[test-backup-success][test-encryption]       [test-aws-failure]
-[test-xml-validation][test-healthcheck]      [scan] — shared Trivy
+    ↓ (parallel — 2 jobs)
+[test] — Bats suites 01-12      [scan] — shared Trivy
 
-[Push] (tags and staging only, after all 9 pass)
+[Push] (tags and staging only, after both pass)
  - shared: QEMU + Buildx multi-arch
  - push amd64 + arm64
  - SBOM + provenance

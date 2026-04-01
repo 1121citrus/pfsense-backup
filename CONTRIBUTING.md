@@ -10,7 +10,8 @@
 
 ### Building
 
-The `build` script runs all stages: lint → build → test → scan → push.
+The `build` script runs the enabled stages in order: lint → build → test →
+scan → advise → push.
 
 ```bash
 ./build              # Local build and test
@@ -29,27 +30,32 @@ Run the test suite against a locally built image:
 Or manually:
 
 ```bash
-docker buildx build -t pfsense-backup:test .
-bash test/run-all TAG=test
+docker buildx build --load -t 1121citrus/pfsense-backup:test .
+IMAGE=1121citrus/pfsense-backup:test ./test/run-all
 ```
 
 ### Code Style
 
-All shell scripts must pass:
+The canonical lint path is `./build`, which already runs Hadolint,
+ShellCheck, and markdownlint. If a manual run is needed, use the same file
+set as the build script:
 
 ```bash
-shellcheck src/*.sh test/*.sh
 hadolint Dockerfile
+shellcheck build src/backup src/common-functions src/healthcheck \
+    src/pfsense-backup src/startup test/run-all test/staging \
+    test/bin/aws test/bin/ssh test/bin/sshpass test/bin/traceroute
+markdownlint "**/*.md"
 ```
 
 The `./build` stage runs these automatically.
 
 ### Submitting Changes
 
-1. Create a branch from `dev`
+1. Create a topic branch from `master`
 2. Make your changes
 3. Run `./build` to lint, test, and scan
-4. Submit a pull request to the `dev` branch
+4. Submit a pull request to the `master` branch
 
 ## Release Process
 
@@ -60,7 +66,3 @@ Releases are tagged with semantic versions:
 ```
 
 Tags trigger a multi-platform build and push to Docker Hub, plus SLSA provenance and SBOM generation.
-
----
-
-**Code of Conduct:** Please see [CODE\_OF\_CONDUCT.md](CODE_OF_CONDUCT.md)

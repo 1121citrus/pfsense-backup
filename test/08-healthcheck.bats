@@ -9,7 +9,7 @@
 
 # Shell fragments run inside the container to configure supercronic and cron table.
 # shellcheck disable=SC2016,SC2089  # fragments run inside container via bash -c
-CRONTAB_SETUP='echo "* * * * * /usr/local/bin/backup 2>&1" > /var/spool/cron/crontabs/$(id -un)'
+CRONTAB_SETUP='printf "SHELL=/bin/sh\n* * * * * /usr/local/bin/pfsense-backup\n" > /var/spool/cron/crontabs/$(id -un)'
 # touch ensures the crontab file exists (possibly empty) before supercronic starts,
 # then supercronic is launched in the background and given 0.5s to initialise.
 SUPERCRONIC_START='touch /var/spool/cron/crontabs/$(id -un) && supercronic /var/spool/cron/crontabs/$(id -un) >/dev/null 2>&1 & sleep 0.5'
@@ -100,5 +100,19 @@ setup() {
         "${CRONTAB_SETUP} && ${SUPERCRONIC_START} && /usr/local/bin/healthcheck" \
         -e HEALTHCHECK_SUCCESS_FILE=/tmp/hc-success-absent \
         -e HEALTHCHECK_STARTUP_FILE=/tmp/hc-started-absent
+    [ "$status" -ne 0 ]
+}
+
+@test "unhealthy when crontab uses old backup 2>&1 format" {
+    # Regression: healthcheck must reject crontabs written by the old
+    # run_scheduler which referenced /usr/local/bin/backup with 2>&1 redirect.
+    # shellcheck disable=SC2016,SC2089
+    local old_crontab_setup
+    old_crontab_setup='echo "* * * * * /usr/local/bin/backup 2>&1" > /var/spool/cron/crontabs/$(id -un)'
+    run run_healthcheck \
+        "${old_crontab_setup} && ${SUPERCRONIC_START} && touch /tmp/hc-success && /usr/local/bin/healthcheck" \
+        -e HEALTHCHECK_SUCCESS_FILE=/tmp/hc-success \
+        -e HEALTHCHECK_MAX_AGE_SECONDS=300 \
+        -e HEALTHCHECK_STARTUP_GRACE_SECONDS=300
     [ "$status" -ne 0 ]
 }

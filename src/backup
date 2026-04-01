@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# shellcheck shell=bash
 
 # Service wrapper: calls pfsense-backup, post-processes, and uploads to S3.
 #
@@ -18,189 +17,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# crond runs jobs with a minimal environment.  startup writes all runtime
-# configuration to ~/.env; each job sources it here to restore the full
-# variable set.  See src/startup for the write side of this pattern.
-ENV=${ENV:-${HOME:-/root}/.env}
-# shellcheck disable=SC1090
-[[ -r "${ENV}" ]] && source "${ENV}"
-echo "[DEBUG] ENV: ${ENV}"
-env | sort | grep -E 'AWS|PFSENSE|HEALTHCHECK|HOSTNAME|TZ'
-pwd
-
-# shellcheck disable=SC1091
-source /usr/local/bin/common-functions
-
-HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE:-/tmp/pfsense-backup.last-success}"
-
-set -o errexit -o errtrace -o nounset -o pipefail
-set +o xtrace +o verbose
-is_true "${DEBUG:=false}" && set -o xtrace -o verbose
-
-command=$(basename "${0}")
-
-# Create a work directory -- to cleanup any debris.
-workdir=$(mktemp -d)
-echo "[DEBUG] workdir: ${workdir}"
-# shellcheck disable=SC2317,SC2329  # invoked indirectly via trap EXIT
-cleanup() {
-    rm -rf "${workdir}" >/dev/null 2>&1 || true
-}
-trap 'cleanup' EXIT
-cd "${workdir}"
-pwd
-
-export AWS_CONFIG_FILE="${AWS_CONFIG_FILE:=/run/secrets/aws-config}"
-
-bucket="${AWS_S3_BUCKET_NAME:=}"
-[[ -n "${bucket}" ]] || error 'need AWS_S3_BUCKET_NAME'
-dryrun="${AWS_DRYRUN:=false}"
-
-# Encryption is optional.  GPG symmetric encryption is selected when either
-# GPG_PASSPHRASE (env var) or GPG_PASSPHRASE_FILE (Docker secret) is present.
-# gpg_encrypt holds 'true'/'false' as commands; see pfsense-backup: have_password.
-gpg_encrypt=false
-gpg_args=(--symmetric --cipher-algo "${GPG_CIPHER_ALGO:=aes256}" --batch)
-if [[ -n "${GPG_PASSPHRASE:=}" ]]; then
-    gpg_args+=(--passphrase "${GPG_PASSPHRASE}")
-    gpg_encrypt=true
-elif [[ -r "${GPG_PASSPHRASE_FILE:=/run/secrets/gpg-passphrase}" ]]; then
-    chmod 600 "${GPG_PASSPHRASE_FILE}" 2>/dev/null || \
-        debug "unable to set permissions on '${GPG_PASSPHRASE_FILE}' (read-only mount?)"
-    gpg_args+=(--passphrase-file "${GPG_PASSPHRASE_FILE}")
-    gpg_encrypt=true
+# Compatibility shim — retained for deployments that set
+#   entrypoint: /usr/local/bin/startup
+# Use 'pfsense-backup --cron' directly in new deployments.
+#
+# Require a bucket: when invoked as 'backup', S3 upload is mandatory.
+# CLI --bucket/--bucket-list flags also satisfy this check.
+_has_bucket=false
+[[ -n "${AWS_S3_BUCKET_NAME:-}${BUCKET:-}${BUCKET_LIST:-}" ]] && _has_bucket=true
+for _arg in "$@"; do
+    case "${_arg}" in --bucket|--bucket-list|-b) _has_bucket=true; break ;; esac
+done
+if ! "${_has_bucket}"; then
+    echo "[ERROR] backup: need AWS_S3_BUCKET_NAME, BUCKET, or --bucket" >&2
+    exit 1
 fi
-
-openssl_rsa_encrypt=false
-# if [[ -r "${RSA_PUBLIC_KEY_FILE:=/run/secrets/rsa-public-key}" ]]; then
-#     error "RSA_PUBLIC_KEY_FILE not implemented - check back later"
-#     chmod 600 "${RSA_PUBLIC_KEY_FILE}" 2>/dev/null || true
-#     openssl_rsa_encrypt=true
-# fi
-
-"${gpg_encrypt}" && "${openssl_rsa_encrypt}" && \
-    error "symmetric gpg and asymmetric RSA encryption cannot be used together"
-
-info "begin ${command}"
-
-# pfsense-backup derives the filename from hostname and firmware version,
-# which are not known until the SSH session completes.
-# PFSENSE_BACKUP_NAME_FILE is a sidecar path: pfsense-backup writes the
-# computed base filename there so this script can name the output file
-# without re-parsing the XML.
-name_file="${workdir}/.backup-name"
-PFSENSE_BACKUP_NAME_FILE="${name_file}" \
-    pfsense-backup > "${workdir}/config.xml.tmp" || \
-    error "pfsense-backup failed"
-echo "[DEBUG] after pfsense-backup, ls -l ${workdir}:"
-ls -l "${workdir}"
-backup_file=$(cat "${name_file}")
-echo "[DEBUG] backup_file: ${backup_file}"
-
-# Add header comment to the downloaded XML file.  tail -n +2 skips the
-# original <?xml?> declaration so the updated declaration takes its place.
-(echo '<?xml version="1.0" encoding="UTF-8"?>' && \
- echo "<!-- ${backup_file} -->" && \
- tail -n +2 "${workdir}/config.xml.tmp") > "${backup_file}"
-output_file="${backup_file}"
-
-# All compression is stdin→stdout to avoid creating an extra copy of the
-# (potentially large) XML file in the workdir alongside the compressed output.
-case "${COMPRESSION:=none}" in
-    bzip | bzip2)
-        info "compressing backup with bzip2: ${output_file}.bz2"
-        bzip2 -9 --keep --quiet --stdout  <"${output_file}" >"${output_file}.bz2"
-        output_file="${output_file}.bz2"
-        ;;
-
-    bzip3)
-        info "compressing backup with bzip3: ${output_file}.bz3"
-        bzip3 --batch --keep --stdout "${output_file}" >"${output_file}.bz3"
-        output_file="${output_file}.bz3"
-        ;;
-
-    gz | gzip)
-        info "compressing backup with gzip --best --no-name --quiet --synchronous: ${output_file}.gz"
-        gzip --best --no-name --quiet --synchronous <"${output_file}" >"${output_file}.gz"
-        output_file="${output_file}.gz"
-        ;;
-
-    lzo | lzop)
-        info "compressing backup with lzop: ${output_file}.lzo"
-        lzop <"${output_file}" >"${output_file}.lzo"
-        output_file="${output_file}.lzo"
-        ;;
-
-    none)
-        true
-        ;;
-
-    lzma | xz)
-        info "compressing backup with lzma/xz --compress --extreme --quiet: ${output_file}.xz"
-        xz --compress --extreme --quiet <"${output_file}" >"${output_file}.xz"
-        output_file="${output_file}.xz"
-        ;;
-
-    pigz)
-        info "compressing backup with pigz --best --no-name --quiet --synchronous: ${output_file}.pgz"
-        pigz --best --no-name --quiet --synchronous <"${output_file}" >"${output_file}.pgz"
-        output_file="${output_file}.pgz"
-        ;;
-
-    pixz)
-        info "compressing backup with pixz -9 -t: ${output_file}.pxz"
-        pixz -9 -t <"${output_file}" >"${output_file}.pxz"
-        output_file="${output_file}.pxz"
-        ;;
-
-    zip)
-        info "compressing backup with zip -q -9: ${output_file}.zip"
-        zip -q -9 "${output_file}.zip" "${output_file}"
-        output_file="${output_file}.zip"
-        ;;
-
-    *)
-        error "unknown compression algorithm: '${COMPRESSION}'"
-        ;;
-esac
-
-if "${gpg_encrypt}"; then
-    info "encrypting backup with GPG"
-    gpg "${gpg_args[@]}" --output "${output_file}.gpg" "${output_file}"
-    output_file="${output_file}.gpg"
-fi
-
-# if "${openssl_rsa_encrypt}"; then
-#     info "encrypting backup with RSA public key"
-#     openssl rsautl -encrypt \
-#                    -pubin \
-#                    -inkey <(ssh-keygen -f "${RSA_PUBLIC_KEY_FILE}" -e -m 'PKCS8') \
-#                    -ssl \
-#                    -in "${output_file}" \
-#                    -out "${output_file}.enc"
-#     output_file="${output_file}.enc"
-# fi
-
-info "downloaded '${backup_file}' to '${output_file}'"
-
-awsargs=(--no-progress)
-is_true "${dryrun}" && awsargs+=(--dryrun)
-
-info "begin mv '${output_file}' to S3 bucket '${bucket}'"
-uri="s3://${bucket}/${output_file}"
-info "running aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
-# aws s3 mv uploads the file then deletes the local copy on success, which
-# prevents archives from accumulating in the workdir across cron runs.
-# Pipe aws output through info for structured logging.  With set -o pipefail
-# a non-zero aws exit propagates through the pipeline; the || branch fires
-# only on failure and provides a clear error message before the script exits.
-# IMPORTANT: touch the healthcheck marker only after a confirmed successful
-# upload — never before, never on failure.
-aws s3 mv "${awsargs[@]}" "${output_file}" "${uri}" 2>&1 | info || \
-    error "aws s3 mv failed uploading '${output_file}' to '${uri}'"
-info "completed aws s3 mv ${awsargs[*]} ${output_file} ${uri}"
-echo "[DEBUG] touching HEALTHCHECK_SUCCESS_FILE: ${HEALTHCHECK_SUCCESS_FILE}"
-touch "${HEALTHCHECK_SUCCESS_FILE}" 2>/dev/null || true
-ls -l "$(dirname "${HEALTHCHECK_SUCCESS_FILE}")"
-info "finish ${command}"
-exit 0
+unset _has_bucket _arg
+PFSENSE_BACKUP_COMMAND=backup exec /usr/local/bin/pfsense-backup "$@"

@@ -9,9 +9,9 @@ Scripts installed into the container image.
 | Script | Role | Entry point |
 |---|---|---|
 | `pfsense-backup` | **Primary CLI** — SSH into pfSense, download the config XML, stream to stdout | user / direct invocation |
-| `backup` | **Legacy service** — calls `pfsense-backup`, compresses, encrypts, uploads to S3, touches healthcheck marker | user / cron |
-| `startup` | Container entrypoint — writes `.env`, installs crontab, touches startup marker, hands off to `crond` | `CMD` in Dockerfile |
-| `healthcheck` | Docker `HEALTHCHECK` — verifies `crond` is running, crontab is configured, and a recent backup succeeded | Docker daemon |
+| `backup` | Compatibility wrapper and image `CMD` — requires a bucket option/env and then execs `pfsense-backup` for one-shot S3 upload | user / default `CMD` |
+| `startup` | Compatibility wrapper for older deployments — execs `pfsense-backup --cron` | explicit entrypoint override |
+| `healthcheck` | Docker `HEALTHCHECK` — verifies `supercronic` is running, the schedule file is configured, and a recent backup succeeded | Docker daemon |
 | `common-functions` | Shared logging helpers (`info`, `error`, `debug`, etc.) — sourced by the other scripts | sourced library |
 
 ---
@@ -27,18 +27,19 @@ docker run ... pfsense-backup > config.xml
               → config.xml download → stdout
 ```
 
-### Service mode (legacy)
+### Scheduler mode
 
 ```
-Docker CMD
-  └─ startup
-        └─ crond (daemon, PID 1)
-              └─ backup  (on CRON_EXPRESSION schedule)
-                    └─ pfsense-backup → config.xml download → stdout
-                    └─ compress  (bzip2 / gzip / xz / …, stdin→stdout)
-                    └─ gpg --symmetric  (optional)
-                    └─ aws s3 mv  →  S3 bucket
-                    └─ touch HEALTHCHECK_SUCCESS_FILE
+docker run ... /usr/local/bin/pfsense-backup --cron
+  └─ pfsense-backup run_scheduler()
+     └─ write ~/.env + crontab file
+     └─ exec supercronic (PID 1)
+        └─ pfsense-backup  (on CRON_EXPRESSION schedule)
+           └─ config.xml download
+           └─ compress  (optional)
+           └─ gpg --symmetric  (optional)
+           └─ aws s3 mv  →  each bucket in BUCKET_LIST
+           └─ touch HEALTHCHECK_SUCCESS_FILE
 ```
 
 ---
@@ -107,53 +108,26 @@ re-parsing the XML stream.
 
 ## `backup`
 
-Legacy service wrapper.  Calls `pfsense-backup` using the
-`PFSENSE_BACKUP_NAME_FILE` sidecar, adds a header comment to the
-downloaded XML, optionally compresses and encrypts, uploads to S3, and
-touches a healthcheck sentinel file on success.
+Compatibility wrapper retained for existing deployments and for the image
+default `CMD`. It performs only two tasks:
 
-### Compression ordering
+1. Validate that a bucket was supplied via `AWS_S3_BUCKET_NAME`, `BUCKET`,
+   `BUCKET_LIST`, `--bucket`, or `--bucket-list`.
+2. Exec `pfsense-backup` with `PFSENSE_BACKUP_COMMAND=backup` so log lines
+   still identify the wrapper invocation.
 
-All compression is stdin→stdout to avoid creating additional copies of
-the XML file in the workdir.  Compression runs before encryption so that
-GPG operates on already-reduced data.
-
-### `aws s3 mv` (not `cp`)
-
-`mv` uploads and then deletes the local copy on success, preventing
-archives from accumulating in the workdir across successive cron runs.
-
-### Healthcheck marker ordering
-
-`HEALTHCHECK_SUCCESS_FILE` is touched only after a confirmed successful
-`aws s3 mv`.  It is never touched before the upload or on any failure
-path.
+All download, compression, encryption, upload, and healthcheck-marker logic
+now lives in `pfsense-backup` itself.
 
 ---
 
 ## `startup`
 
-Container entrypoint for service mode.  Writes all runtime configuration
-to `~/.env` (the file that `crond` jobs source at startup), installs the
-crontab entry, touches the startup marker, and execs `crond -f` as PID 1.
+Compatibility shim. Older deployments may still set
+`entrypoint: /usr/local/bin/startup`; the script now immediately execs
+`pfsense-backup --cron`.
 
-### `.env` write-and-source pattern
-
-crond runs jobs with a minimal environment.  Writing configuration to a
-file that each job sources is simpler and more reliable than threading
-environment variables through crond's own `ENVFILE` mechanism.
-
-### `__quote` helper
-
-Handles embedded single quotes in variable values via the standard shell
-quoting idiom (`'` → `'"'"'`), keeping the generated `export` statements
-syntactically valid when sourced.
-
-### `HEALTHCHECK_STARTUP_FILE`
-
-Touched immediately before handing off to crond.  The healthcheck uses
-this marker to distinguish a freshly started container (within startup
-grace window — healthy) from one where the cron job is genuinely overdue.
+New deployments should invoke `pfsense-backup --cron` directly.
 
 ---
 
@@ -161,10 +135,10 @@ grace window — healthy) from one where the cron job is genuinely overdue.
 
 Checks three conditions:
 
-1. **crontab configured** — `/var/spool/cron/crontabs/root` exists and
-   contains the `/usr/local/bin/backup` entry.
-2. **crond running** — `pidof crond` with `pgrep -x crond` fallback for
-   portability across busybox and procps variants.
+1. **crontab configured** — `/var/spool/cron/crontabs/$(id -un)` exists and
+   contains the scheduled `pfsense-backup` entry.
+2. **supercronic running** — `pgrep -x supercronic` confirms the scheduler
+   process is alive.
 3. **backup ran recently** — dual-marker age-based check (see below).
 
 ### Dual-marker health check
@@ -173,8 +147,8 @@ Uses two sentinel files:
 
 | Marker | Written by | Meaning |
 |---|---|---|
-| `HEALTHCHECK_SUCCESS_FILE` | `backup` (after successful S3 upload) | When did the last good backup complete? |
-| `HEALTHCHECK_STARTUP_FILE` | `startup` (before crond is exec'd) | When did this container instance start? |
+| `HEALTHCHECK_SUCCESS_FILE` | `pfsense-backup` (after successful S3 upload) | When did the last good backup complete? |
+| `HEALTHCHECK_STARTUP_FILE` | `pfsense-backup` scheduler mode (before `supercronic` is exec'd) | When did this scheduler instance start? |
 
 Both markers are evaluated independently before any error is emitted.
 This correctly handles a container restart where a stale success marker
@@ -192,10 +166,10 @@ is the fallback.
 
 ## Adding a new compression algorithm
 
-1. Add a new `case` branch in `backup` following the existing pattern.
+1. Add a new `case` branch in `pfsense-backup` following the existing pattern.
 2. Choose a stdin→stdout invocation to avoid a redundant temp file.
 3. Update the `COMPRESSION` description in `README.md` (project root).
-4. Add test coverage in `test/backup-success`.
+4. Add test coverage in `test/04-backup-success.bats`.
 
 ## Adding a new CLI option to `pfsense-backup`
 
@@ -204,12 +178,13 @@ is the fallback.
 3. Update the `show_help()` function and the header comment block.
 4. Document the env var in the main `README.md` environment-variable
    table.
-5. Add test coverage in `test/pfsense-backup`.
+5. Add test coverage in the appropriate CLI suite, typically
+   `test/02-pfsense-backup.bats` or `test/10-pfsense-backup-cli-flags.bats`.
 
 ## Adding a new environment variable (service mode)
 
-1. Add the variable with its default to `startup` (the `.env` write
-   block).
+1. Add the variable with its default to `pfsense-backup` and, if scheduler
+   mode needs it, to `create_environment()`.
 2. Document it in the main `README.md` environment-variable table.
 3. If it affects backup behavior, add a test case in the appropriate
-   `test/backup-*` file.
+   numbered `.bats` file under `test/`.

@@ -30,8 +30,13 @@ An application specific service to create [pfSense](https://docs.netgate.com/pfs
 ## Overview
 
 The primary use case is `pfsense-backup` as a CLI: run it directly and
-redirect stdout to a file.  Backup to S3 on a schedule is supported via
-the legacy `backup` service wrapper and `startup` entrypoint.
+redirect stdout to a file.  For S3 uploads, use `pfsense-backup` with
+`--bucket` or `--bucket-list` for one-shot runs, or `pfsense-backup --cron`
+for scheduled runs backed by `supercronic`.
+
+The image `CMD` is `/usr/local/bin/backup`, which preserves the older
+single-shot S3-upload behavior.  The `backup` and `startup` scripts are
+compatibility shims; new deployments should call `pfsense-backup` directly.
 
 You must separately provision and deploy:
 
@@ -45,7 +50,7 @@ configuration file. The default name is 'remote-backup'.
 
   ```console
   $ cat /home/remote-backup/.ssh/authorized_keys
-  restrict,pty,command="cat /cf/conf/config.xml" ssh-ed25519 AAAAC3NzaC1lZDI1MTE5AAAAIFcn7Vcaxi8rQw0/Aw7ZMFfD9h6vOzTXUd/insHick2o remote-backup
+  restrict,pty,command="cat /cf/conf/config.xml" ssh-ed25519 AAAAC3NzaC1lQDI1MTE5AAAAIFcn7Vhwxi8rQw0/Aw7pMFfD9h6zOzDXUd/insHpcQ2o remote-backup
   ```
 
 ## Example: one-shot download (CLI)
@@ -58,9 +63,10 @@ $ docker run --rm \
       -v ~/.ssh/firewall-remote-backup.ed25519:/run/secrets/pfsense-identity:ro \
       -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
       1121citrus/pfsense-backup pfsense-backup > config.xml
-[INFO] 20250916T163601 pfsense-backup begin pfsense-backup
-[INFO] 20250916T163604 pfsense-backup streaming config: 20250916T163604-firewall-pfsense-v24.11-config-backup.xml
-[INFO] 20250916T163604 pfsense-backup finish pfsense-backup
+[INFO] 20260316T163601 pfsense-backup begin pfsense-backup
+[INFO] 20260316T163604 pfsense-backup downloaded '20260316T163604-firewall-pfsense-v24.11-config-backup.xml' to '/tmp/tmp.abc1/20260316T163604-firewall-pfsense-v24.11-config-backup.xml'
+[INFO] 20260316T163604 pfsense-backup backup '20260316T163604-firewall-pfsense-v24.11-config-backup.xml': writing '/tmp/tmp.abc1/20260316T163604-firewall-pfsense-v24.11-config-backup.xml' to stdout
+[INFO] 20260316T163604 pfsense-backup finish pfsense-backup
 ```
 
 Use `pfsense-backup --help` to see all available options:
@@ -91,72 +97,63 @@ $ docker run -i --rm \
       -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
       -v /etc/localtime:/etc/localtime:ro \
       1121citrus/pfsense-backup backup
-[INFO] 20250915T013601 backup begin backup
-[INFO] 20250915T013601 pfsense-backup begin pfsense-backup
-[INFO] 20250915T013604 pfsense-backup streaming config: 20250915T013604-firewall-pfsense-v24.0-config-backup.xml
-[INFO] 20250915T013604 pfsense-backup finish pfsense-backup
-[INFO] 20250915T013604 backup downloaded '20250915T013604-firewall-pfsense-v24.0-config-backup.xml'
-[INFO] 20250915T013604 backup begin mv '20250915T013604-firewall-pfsense-v24.0-config-backup.xml' to S3 bucket 'backups-bucket'
-[INFO] 20250915T013606 backup move: ./20250915T013604-firewall-pfsense-v24.0-config-backup.xml to s3://backups-bucket/20250915T013604-firewall-pfsense-v24.0-config-backup.xml
-[INFO] 20250915T013606 backup completed aws s3 mv ...
-[INFO] 20250915T013606 backup finish backup
+[INFO] 20260315T013601 pfsense-backup begin firewall 'firewall' backup to 'backups-bucket' bucket
+[INFO] 20260315T013601 pfsense-backup begin backup
+[INFO] 20260315T013604 pfsense-backup downloaded '20260315T013604-firewall-pfsense-v24.0-config-backup.xml' to '/tmp/tmp.abc1/20260315T013604-firewall-pfsense-v24.0-config-backup.xml'
+[INFO] 20260315T013604 pfsense-backup begin mv '/tmp/tmp.abc1/20260315T013604-firewall-pfsense-v24.0-config-backup.xml' to S3 bucket 'backups-bucket'
+[INFO] 20260315T013606 pfsense-backup running aws s3 mv --no-progress /tmp/tmp.abc1/20260315T013604-firewall-pfsense-v24.0-config-backup.xml s3://backups-bucket/20260315T013604-firewall-pfsense-v24.0-config-backup.xml
+[INFO] 20260315T013606 pfsense-backup move: /tmp/tmp.abc1/20260315T013604-firewall-pfsense-v24.0-config-backup.xml to s3://backups-bucket/20260315T013604-firewall-pfsense-v24.0-config-backup.xml
+[INFO] 20260315T013606 pfsense-backup completed aws s3 mv --no-progress /tmp/tmp.abc1/20260315T013604-firewall-pfsense-v24.0-config-backup.xml s3://backups-bucket/20260315T013604-firewall-pfsense-v24.0-config-backup.xml
+[INFO] 20260315T013606 pfsense-backup finish backup
+[INFO] 20260315T013606 pfsense-backup completed firewall 'firewall' backup to 'backups-bucket' bucket
 ```
 
-## Example: backup periodically as cron job
+## Example: backup periodically as scheduler service
 
-Run without a command to start the service (cron) mode:
+Run `pfsense-backup --cron` to enter scheduler mode:
 
 ```console
 $ docker run -i --rm \
-      -e AWS_S3_BUCKET_NAME=backups-bucket \
+  -e BUCKET=backups-bucket \
       -e CRON_EXPRESSION='*/15 * * * *' \
       -e PFSENSE_HOST=firewall \
       -v ./secrets/aws-config:/run/secrets/aws-config:ro \
       -v ./secrets/remote-backup-identity.ed25519:/run/secrets/pfsense-identity:ro \
       -v ./secrets/pfsense-identity-password:/run/secrets/pfsense-identity-password:ro \
       -v /etc/localtime:/etc/localtime:ro \
-      1121citrus/pfsense-backup
+  1121citrus/pfsense-backup /usr/local/bin/pfsense-backup --cron
 ```
+
+Existing deployments that still set `entrypoint: /usr/local/bin/startup`
+continue to work because `startup` now execs `pfsense-backup --cron`.
 
 ### Example log output
 
 ```console
-[INFO] 20250916T163325 startup create env file /root/.env
-[INFO] 20250916T163325 startup mode of '/root/.env' changed from 0644 (rw-r--r--) to 0600 (rw-------)
-[INFO] 20250916T163325 startup export AWS_CONFIG_FILE='/run/secrets/aws-config'
-[INFO] 20250916T163325 startup export AWS_DRYRUN='false'
-[INFO] 20250916T163325 startup export AWS_S3_BUCKET_NAME='backups-bucket'
-[INFO] 20250916T163325 startup export CRON_EXPRESSION='*/15 * * * *'
-[INFO] 20250916T163325 startup export DEBUG='false'
-[INFO] 20250916T163325 startup export GPG_CIPHER_ALGO='aes256'
-[INFO] 20250916T163325 startup export GPG_PASSPHRASE='**REDACTED**'
-[INFO] 20250916T163325 startup export GPG_PASSPHRASE_FILE='/run/secrets/gpg-passphrase'
-[INFO] 20250916T163325 startup export PFSENSE_HOST='firewall'
-[INFO] 20250916T163325 startup export PFSENSE_USER=''
-[INFO] 20250916T163325 startup export PFSENSE_IDENTITY_FILE='/run/secrets/pfsense-identity'
-[INFO] 20250916T163325 startup export PFSENSE_IDENTITY_PASSWORD='**REDACTED**'
-[INFO] 20250916T163325 startup export PFSENSE_IDENTITY_PASSWORD_FILE='/run/secrets/pfsense-identity-password'
-[INFO] 20250916T163325 startup export RSA_PUBLIC_KEY_FILE='/run/secrets/rsa-public-key'
-[INFO] 20250916T163325 startup export TAILSCALE_HOST='100.76.132.97'
-[INFO] 20250916T163325 startup installing cron.d entry: /usr/local/bin/backup
-[INFO] 20250916T163325 startup mode of '/var/spool/cron/crontabs/root' changed from 0600 (rw-------) to 0644 (rw-r--r--)
-[INFO] 20250916T163325 startup crontab: */15 * * * * /usr/local/bin/backup 2>&1
-[INFO] 20250916T163325 startup handing the reins over to cron daemon
+[INFO] 20260316T163325 pfsense-backup entering scheduler mode (*/15 * * * *)
+[INFO] 20260316T163325 pfsense-backup wrote env file /pfsense-backup/.env
+[INFO] 20260316T163325 pfsense-backup export AWS_CONFIG_FILE=/run/secrets/aws-config
+[INFO] 20260316T163325 pfsense-backup export BUCKET=backups-bucket
+[INFO] 20260316T163325 pfsense-backup export BUCKET_LIST=backups-bucket
+[INFO] 20260316T163325 pfsense-backup unset CRON_EXPRESSION
+[INFO] 20260316T163325 pfsense-backup export PFSENSE_HOST=firewall
+[INFO] 20260316T163325 pfsense-backup installing cron entry: */15 * * * * /usr/local/bin/pfsense-backup
+[INFO] 20260316T163325 pfsense-backup crontab: SHELL=/bin/sh
+[INFO] 20260316T163325 pfsense-backup handing off to supercronic
    .
    .
    .
-[INFO] 20250916T164500 backup begin backup
-[INFO] 20250916T164500 pfsense-backup begin pfsense-backup
-[INFO] 20250916T164502 pfsense-backup streaming config: 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml
-[INFO] 20250916T164502 pfsense-backup finish pfsense-backup
-[INFO] 20250916T164502 backup compressing backup with lzma/xz --compress --extreme --quiet: 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz
-[INFO] 20250916T164502 backup encrypting backup with GPG
-[INFO] 20250916T164503 backup downloaded '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml' to '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg'
-[INFO] 20250916T164503 backup begin mv '20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg' to S3 bucket 'backups-bucket'
-[INFO] 20250916T164503 backup running aws s3 mv --no-progress 20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
-[INFO] 20250916T164504 backup move: ./20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg to s3://backups-bucket/20250916T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
-[INFO] 20250916T164504 backup completed aws s3 mv --no-progress ...
-[INFO] 20250916T164504 backup finish backup
+[INFO] 20260316T164500 pfsense-backup begin firewall 'firewall' backup to 'backups-bucket' bucket
+[INFO] 20260316T164500 pfsense-backup begin pfsense-backup
+[INFO] 20260316T164502 pfsense-backup compressing backup with lzma/xz --compress --extreme --quiet: /tmp/tmp.123/config.xml.xz
+[INFO] 20260316T164502 pfsense-backup encrypting backup with GPG
+[INFO] 20260316T164503 pfsense-backup downloaded '20260316T164502-firewall-1-pfsense-v24.0-config-backup.xml' to '/tmp/tmp.123/20260316T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg'
+[INFO] 20260316T164503 pfsense-backup begin mv '/tmp/tmp.123/20260316T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg' to S3 bucket 'backups-bucket'
+[INFO] 20260316T164503 pfsense-backup running aws s3 mv --no-progress /tmp/tmp.123/20260316T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg s3://backups-bucket/20260316T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
+[INFO] 20260316T164504 pfsense-backup move: /tmp/tmp.123/20260316T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg to s3://backups-bucket/20260316T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
+[INFO] 20260316T164504 pfsense-backup completed aws s3 mv --no-progress /tmp/tmp.123/20260316T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg s3://backups-bucket/20260316T164502-firewall-1-pfsense-v24.0-config-backup.xml.xz.gpg
+[INFO] 20260316T164504 pfsense-backup finish pfsense-backup
+[INFO] 20260316T164504 pfsense-backup completed firewall 'firewall' backup to 'backups-bucket' bucket
 ```
 
 ## Example: Docker compose file
@@ -167,8 +164,9 @@ services:
     container_name: pfsense-backup
     image: 1121citrus/pfsense-backup:latest
     restart: always
+    command: ["/usr/local/bin/pfsense-backup", "--cron"]
     environment:
-      - AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME:-backup-bucket}
+      - BUCKET=${BUCKET:-backup-bucket}
       - CRON_EXPRESSION=${CRON_EXPRESSION:-15 3 * * *}
       - PFSENSE_HOST=firewall
       - TZ=${TZ:-US/Eastern}
@@ -200,37 +198,62 @@ Option | Env var | Default | Notes
 `-p,--password PW` | `PFSENSE_IDENTITY_PASSWORD` | _(none)_ | Key passphrase. **WARNING: visible in process table — prefer `--password-file`.**
 `-P,--password-file FILE` | `PFSENSE_IDENTITY_PASSWORD_FILE` | `/run/secrets/pfsense-identity-password` | File containing the key passphrase.
 `--strict-host-key-checking MODE` | `PFSENSE_SSH_STRICT_HOST_KEY_CHECKING` | `accept-new` | SSH host-key checking mode (`yes`, `accept-new`, `no`).
-`--known-hosts FILE` | `PFSENSE_SSH_KNOWN_HOSTS_FILE` | `/root/.ssh/known_hosts` | Known hosts file.
+`--known-hosts FILE` | `PFSENSE_SSH_KNOWN_HOSTS_FILE` | `${HOME}/.ssh/known_hosts` | Known hosts file.
+`-b,--bucket BUCKET` | `BUCKET` | `AWS_S3_BUCKET_NAME` fallback | Upload one backup to one S3 bucket. `AWS_S3_BUCKET_NAME` is a legacy single-bucket alias.
+`--bucket-list 'B1 B2'` | `BUCKET_LIST` | _(none)_ | Upload the same backup to multiple buckets. Values are bucket names only, not `bucket/prefix` paths.
+`--dryrun` / `--no-dryrun` | `DRYRUN` | `false` | Pass `--dryrun` to `aws s3 mv`. `--dryrun` skips the interactive confirmation gate.
+`-y,--yes` | `YES` | `false` | Skip the interactive confirmation prompt for live uploads.
+`--aws-config FILE` | `AWS_CONFIG_FILE` | `/run/secrets/aws-config` | AWS CLI config/credentials file.
+`--aws-extra-args ARGS` | `AWS_EXTRA_ARGS` | _(none)_ | Extra arguments appended to AWS CLI calls.
+`--compression FORMAT` | `COMPRESSION` | `none` | Compression mode: `bzip`, `bzip2`, `bzip3`, `gz`, `gzip`, `lzma`, `lzo`, `lzop`, `none`, `pigz`, `pixz`, `xz`, `zip`.
+`--gpg-cipher-algo ALGO` | `GPG_CIPHER_ALGO` | `aes256` | Cipher used for optional symmetric GPG encryption.
+`--gpg-passphrase PASS` | `GPG_PASSPHRASE` | _(none)_ | GPG passphrase. **WARNING: visible in process table — prefer `--gpg-passphrase-file`.**
+`--gpg-passphrase-file FILE` | `GPG_PASSPHRASE_FILE` | `/run/secrets/gpg-passphrase` | File containing the GPG passphrase.
+`-c,--cron` | `CRON_EXPRESSION` | `@daily` | Enter scheduler mode and run on the current `CRON_EXPRESSION` value.
+`--cron-expression EXPR` | `CRON_EXPRESSION` | `@daily` | Set the schedule and enter scheduler mode.
+`--hourly N` | `HOURLY` | `24` | Retention policy knob. Also enters scheduler mode.
+`--daily N` | `DAILY` | `7` | Retention policy knob. Also enters scheduler mode.
+`--weekly N` | `WEEKLY` | `4` | Retention policy knob. Also enters scheduler mode.
+`--monthly N` | `MONTHLY` | `6` | Retention policy knob. Also enters scheduler mode.
+`--yearly N` | `YEARLY` | `always` | Retention policy knob. Also enters scheduler mode.
 
-### Service-mode environment variables
+### Scheduler, upload, and healthcheck environment variables
 
 Variable | Default | Notes
 --- | --- | ---
 `AWS_CONFIG_FILE` | `/run/secrets/aws-config` | The externally provided AWS configuration file containing credentials, etc. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
-`AWS_DRYRUN` | `false` | Set to `true` to pass `--dryrun` to AWS CLI commands.
-`AWS_S3_BUCKET_NAME` | | Required parameter. The backup files will be uploaded to this S3 bucket. You may include slashes after the bucket name if you want to upload into a specific path within the bucket, e.g. `your-bucket-name/backups/daily` (without trailing forward slash (`/`)).
+`AWS_S3_BUCKET_NAME` | _(none)_ | Legacy single-bucket alias. New deployments should use `BUCKET` or `BUCKET_LIST`.
+`BUCKET` | _(none)_ | Canonical single-bucket setting for one-shot uploads and scheduler mode.
+`BUCKET_LIST` | _(none)_ | Space-separated list of bucket names for multi-bucket upload.
 `COMPRESSION` | `none` | Compression application to apply: `bzip`, `bzip2`, `bzip3`, `gz`, `gzip`, `lzma`, `lzo`, `lzop`, `none`, `pigz`, `pixz`, `xz`, `zip`
-`CRON_EXPRESSION` | `@daily` | Standard debian-flavored `cron` expression for when the backup should run. Use e.g. `0 4 * * *` to back up at 4 AM every night. See the [man page](http://man7.org/linux/man-pages/man8/cron.8.html) or [crontab.guru](https://crontab.guru/) for more.
+`CRON_EXPRESSION` | `@daily` | Schedule used by `--cron` / scheduler mode. See [crontab.guru](https://crontab.guru/) for examples.
+`DAILY` | `7` | Retention policy knob written into the scheduler environment.
 `DEBUG` | `false` | Set to `true` to enable `xtrace` and `verbose` shell options, and `--verbose` option for `sshpass` and `ssh` client. **WARNING: enables credential exposure in logs — never use in production.**
+`DRYRUN` | `false` | Canonical dry-run control for S3 uploads.
 `GPG_CIPHER_ALGO` | `aes256` | GnuPG symmetric encryption cipher to use to encrypt the backup.
 `GPG_PASSPHRASE` | _none_ | GnuPG symmetric encryption pass-phrase to use to encrypt the backup.  **WARNING: consider using the more secure `GPG_PASSPHRASE_FILE`**, which might be a bind mount or a compose secret.
 `GPG_PASSPHRASE_FILE` | `/run/secrets/gpg-passphrase` | A file containing the symmetric encryption pass-phrase to use to encrypt the backup. This is intended to be a Docker [secret](https://docs.docker.com/compose/how-tos/use-secrets/) but could also be a bind mount.
 `HEALTHCHECK_MAX_AGE_SECONDS` | `172800` | Maximum allowed age in seconds of the latest successful backup marker before healthcheck fails. Default is 48 hours.
-`HEALTHCHECK_STARTUP_FILE` | `/tmp/pfsense-backup.started-at` | File touched at container startup, used by healthcheck grace-period logic.
+`HEALTHCHECK_STARTUP_FILE` | `/tmp/pfsense-backup.started-at` | File touched when scheduler mode starts, used by healthcheck grace-period logic.
 `HEALTHCHECK_STARTUP_GRACE_SECONDS` | `900` | Grace period in seconds after container start before requiring a successful backup marker. Default is 15 minutes.
 `HEALTHCHECK_SUCCESS_FILE` | `/tmp/pfsense-backup.last-success` | File touched when backup successfully uploads to S3, used by healthcheck recency validation.
+`HOURLY` | `24` | Retention policy knob written into the scheduler environment.
+`MONTHLY` | `6` | Retention policy knob written into the scheduler environment.
 `PFSENSE_EXTRA_SSH_ARGS` | _none_ | Additional options to add to the `ssh` command.
 `PFSENSE_EXTRA_SSHPASS_ARGS` | _none_ | Additional options to add to the `sshpass` command.
 `TAILSCALE_HOST` | _none_ | Specify the hostname or IP address of the pfSense firewall on the Tailscale mesh. Do not include the final `/`, otherwise backup will fail. Used only when `PFSENSE_HOST` is unset.
 `TZ` | `UTC` | Which timezone should `cron` use, e.g. `America/New_York` or `Europe/Warsaw`. See [full list of available time zones](http://manpages.ubuntu.com/manpages/bionic/man3/DateTime::TimeZone::Catalog.3pm.html).
+`WEEKLY` | `4` | Retention policy knob written into the scheduler environment.
+`YEARLY` | `always` | Retention policy knob written into the scheduler environment.
+`YES` | `false` | Skip the interactive confirmation prompt for live uploads.
 
 ## Health check
 
-The container exposes a Docker HEALTHCHECK that validates three things every
-30 seconds:
+The container exposes a Docker `HEALTHCHECK` that validates three things every
+60 seconds when the container is running in scheduler mode:
 
-1. **Crontab** — the cron table is configured with the backup command.
-2. **crond** — the cron daemon is running.
+1. **Crontab** — the supercronic schedule file is configured with the backup command.
+2. **supercronic** — the scheduler process is running.
 3. **Backup recency** — a recent successful backup marker exists.
 
 Recency logic:
@@ -292,13 +315,14 @@ Tests require a built Docker image tagged `1121citrus/pfsense-backup:latest`.
 # Run the full test suite
 ./test/run-all
 
-# Run an individual suite
-./test/pfsense-backup
-./test/backup-success
-./test/backup-encryption
-./test/backup-xml-validation
-./test/backup-aws-failure
-./test/healthcheck
+# Run individual suites with bats installed locally
+bats test/02-pfsense-backup.bats
+bats test/04-backup-success.bats
+bats test/05-backup-encryption.bats
+bats test/07-backup-xml-validation.bats
+bats test/08-healthcheck.bats
+bats test/11-scheduler-mode.bats
+bats test/12-multi-bucket.bats
 
 # Test against a specific image tag
 IMAGE=1121citrus/pfsense-backup:1.2.3 ./test/run-all
@@ -306,6 +330,8 @@ IMAGE=1121citrus/pfsense-backup:1.2.3 ./test/run-all
 
 Tests use lightweight stub binaries in `test/bin/` that shadow the real
 `ssh`, `sshpass`, `aws`, and `traceroute` commands inside the container.
+
+GitHub Actions currently runs suites `01` through `12` in a single CI job.
 
 ## Attributions and provenance
 
