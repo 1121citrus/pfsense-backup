@@ -82,3 +82,4 @@ setup() {
             test -f /tmp/pfsense-backup.last-success'
     [ "$status" -eq 0 ]
 }
+ 
