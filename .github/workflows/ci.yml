@@ -25,6 +25,8 @@ jobs:
     uses: 1121citrus/shared-github-workflows/.github/workflows/lint.yml@main
 
   # ── Stage 2: Build ─────────────────────────────────────────────────────────
+  # Build image for scanning and smoke tests.  The bats test suite mounts
+  # project source directly so it runs in parallel with (not after) build.
   build:
     needs: lint
     uses: 1121citrus/shared-github-workflows/.github/workflows/build.yml@main
@@ -32,36 +34,74 @@ jobs:
       image: 1121citrus/pfsense-backup
 
   # ── Stage 3: Test ──────────────────────────────────────────────────────────
-  # All suites run in a single job to avoid 8x artifact download/load overhead.
-  # Tests run inside bats/bats:1.13.0 with the Docker socket mounted.
+  # Bats tests mount the project source read-only into the bats container.
+  # Mock binaries in test/bin/ stub aws, ssh, sshpass, and traceroute, so no
+  # host packages are required.  Runs in parallel with build after lint passes.
   test:
-    needs: build
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: docker-image, path: /tmp }
-      - run: gunzip -c /tmp/image.tar.gz | docker load
       - name: Run test suites
         run: |
-          docker run --rm -i \
-            -v "$PWD:$PWD" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e "IMAGE=$IMAGE:latest" \
-            --workdir "$PWD" --entrypoint sh bats/bats:1.13.0 \
-            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats test/01-build.bats \
-                        test/02-pfsense-backup.bats \
-                        test/03-backup-required-vars.bats \
-                        test/04-backup-success.bats \
-                        test/05-backup-encryption.bats \
-                        test/06-backup-aws-failure.bats \
-                        test/07-backup-xml-validation.bats \
-                        test/08-healthcheck.bats \
-                        test/09-image-metadata.bats \
-                        test/10-pfsense-backup-cli-flags.bats \
-                        test/11-scheduler-mode.bats \
-                        test/12-multi-bucket.bats"
+          docker run -i --rm \
+            -v "$PWD:/code:ro" \
+            -w /code \
+            bats/bats:1.13.0 \
+              test/01-build.bats \
+              test/02-pfsense-backup.bats \
+              test/03-backup-required-vars.bats \
+              test/04-backup-success.bats \
+              test/05-backup-encryption.bats \
+              test/06-backup-aws-failure.bats \
+              test/07-backup-xml-validation.bats \
+              test/08-healthcheck.bats \
+              test/09-image-metadata.bats \
+              test/10-pfsense-backup-cli-flags.bats \
+              test/11-scheduler-mode.bats \
+              test/12-multi-bucket.bats
+
+  # ── Stage 3b: Image smoke test ─────────────────────────────────────────────
+  # Run built-image smoke tests to catch packaging/runtime regressions not
+  # visible in source-mounted bats tests.
+  smoke-test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: docker-image
+          path: /tmp
+      - name: Load image
+        run: gunzip -c /tmp/image.tar.gz | docker load
+
+      - name: Verify bash is available
+        run: docker run --rm --entrypoint bash "$IMAGE:latest" --version
+
+      - name: Verify aws CLI is available
+        run: docker run --rm --entrypoint aws "$IMAGE:latest" --version
+
+      - name: Verify ssh is available
+        run: docker run --rm --entrypoint ssh "$IMAGE:latest" -V
+
+      - name: Verify sshpass is available
+        run: docker run --rm --entrypoint sshpass "$IMAGE:latest" -V
+
+      - name: Verify common-functions is installed
+        run: docker run --rm --entrypoint test "$IMAGE:latest" -f /usr/local/include/common-functions
+
+      - name: Verify backup is executable
+        run: docker run --rm --entrypoint test "$IMAGE:latest" -x /usr/local/bin/backup
+
+      - name: Verify pfsense-backup is executable
+        run: docker run --rm --entrypoint test "$IMAGE:latest" -x /usr/local/bin/pfsense-backup
+
+      - name: Verify healthcheck is executable
+        run: docker run --rm --entrypoint test "$IMAGE:latest" -x /usr/local/bin/healthcheck
+
+      - name: Verify pfsense-backup --help exits 0
+        run: docker run --rm --entrypoint /usr/local/bin/pfsense-backup "$IMAGE:latest" --help
 
   # ── Stage 4: Security scan ─────────────────────────────────────────────────
   scan:
@@ -73,7 +113,7 @@ jobs:
 
   # ── Stage 5: Push to Docker Hub ────────────────────────────────────────────
   push:
-    needs: [test, scan]
+    needs: [test, scan, smoke-test]
     if: >
       github.event_name == 'push' && (
         startsWith(github.ref, 'refs/tags/v') ||

@@ -129,3 +129,33 @@ setup() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"--advise"* ]]
 }
+
+@test "test/staging --help lists --cache option" {
+    run "${STAGING}" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--cache CACHE_RULES"* ]]
+}
+
+@test "test/staging --cache requires an argument" {
+    run "${STAGING}" --cache
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"requires an argument"* ]]
+}
+
+@test "test/staging --cache reset=all accepted without error" {
+    run "${STAGING}" --cache "reset=all" --no-scan --no-advise --image nonexistent-image-$(date +%s) 2>&1 || true
+    [[ "$output" != *"Unknown --cache rule"* ]]
+    [[ "$output" != *"Unknown cache target"* ]]
+}
+
+@test "test/staging --cache rejects unknown rule key" {
+    run "${STAGING}" --cache "bad-key=trivy"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Unknown --cache rule key"* ]]
+}
+
+@test "test/staging --cache rejects unknown target" {
+    run "${STAGING}" --cache "reset=badtarget"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Unknown cache target"* ]]
+}

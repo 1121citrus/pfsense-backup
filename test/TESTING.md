@@ -105,6 +105,7 @@ test/staging [options] [IMAGE]
 | `--no-scan` | `STAGING_SCAN=false` | Skip Trivy scan; implies `--no-advise` unless `--advise` is set |
 | `--advise [LIST]` | `STAGING_ADVISE=true` | Run advisory scans (`grype`, `scout`, `dive`, `all`) |
 | `--no-advise` | `STAGING_ADVISE=false` | Disable advisory scans |
+| `--cache CACHE_RULES` | — | One-run cache controls for scanner DBs (e.g. `reset=all`, `skip-update=grype`) |
 | `--yes` | — | Skip the interactive confirmation prompt |
 | `--test TEST` | — | Run only the named test function |
 | `-h, --help` | — | Print usage and exit |
@@ -210,6 +211,14 @@ test/staging --test test_staging_cron_fires \
     --identity-file ~/.ssh/pfsense-identity \
     --identity-password-file ~/.secrets/pfsense-password \
     --bucket staging.my-backups \
+    1121citrus/pfsense-backup:dev-abc1234
+
+# Reset scanner DB caches before running advisory scans:
+test/staging --cache 'reset=all' --advise grype \
+    1121citrus/pfsense-backup:dev-abc1234
+
+# Skip Grype DB network update (use cached DB as-is):
+test/staging --cache 'skip-update=grype' --advise grype \
     1121citrus/pfsense-backup:dev-abc1234
 ```
 
