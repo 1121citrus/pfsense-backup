@@ -115,7 +115,7 @@ setup() {
 @test "build --cache Skip-Update=TrIvY skips Trivy DB update" {
     run "${BUILD}" --cache "Skip-Update=TrIvY" --dry-run --no-lint --no-test --no-scan --no-advise
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Cache: Trivy DB update skipped"* ]]
+    [[ "$output" == *"Trivy DB update skipped"* ]]
 }
 
 @test "test/staging --help lists --scan option" {

@@ -467,6 +467,12 @@ if [[ "${CACHE_RESET_GRYPE}" == "true" ]]; then
     echo "==> Cache: reset Grype DB" >&2
     reset_cache_db "${GRYPE_CACHE_VOLUME}"
 fi
+if [[ "${CACHE_SKIP_UPDATE_TRIVY}" == "true" ]]; then
+    echo "    Trivy DB update skipped for this run (--cache skip-update=trivy)" >&2
+fi
+if [[ "${CACHE_SKIP_UPDATE_GRYPE}" == "true" ]]; then
+    echo "    Grype DB update skipped for this run (--cache skip-update=grype)" >&2
+fi
 
 echo "Image:     ${full_image}:${VERSION}" >&2
 echo "Platforms: ${PLATFORMS}" >&2
@@ -652,18 +658,17 @@ if [[ "${SCAN}" == "true" ]]; then
     # Always skip DB update in the actual scan since we primed it in stage 4a.
     # This avoids network downloads during the scan and respects --cache skip-update.
     _trivy_db_flags=(--skip-db-update --skip-java-db-update)
-    if [[ "${CACHE_SKIP_UPDATE_TRIVY}" == "true" ]]; then
-        echo "    Trivy DB update skipped for this run (--cache skip-update=trivy)" >&2
-    fi
 
     run docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
         -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
+        -v "${script_dir}/.trivyignore:/.trivyignore:ro" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
             --quiet \
             --no-progress \
             --exit-code 1 \
             --ignore-unfixed \
+            --ignorefile /.trivyignore \
             --severity HIGH,CRITICAL \
             --timeout 5m \
             "${_trivy_db_flags[@]}" \
@@ -688,7 +693,6 @@ if [[ "${ADVISE_GRYPE}" == "true" ]]; then
     fi
 
     if [[ "${CACHE_SKIP_UPDATE_GRYPE}" == "true" ]]; then
-        echo "    Grype DB update skipped for this run (--cache skip-update=grype)" >&2
         if ! grype_db_ready "${GRYPE_CACHE_VOLUME}"; then
             echo "    Warning: Grype DB cache is empty; skipping Grype advisement" >&2
             _grype_run_scan=false
@@ -810,6 +814,7 @@ if [[ "${ADVISE_COVERAGE}" == "true" ]]; then
                 test/10-pfsense-backup-cli-flags.bats \
                 test/11-scheduler-mode.bats \
                 test/12-multi-bucket.bats \
+                test/13-source-coverage.bats \
             >&2 || echo "    Coverage run failed (advisory only)" >&2
     fi
 fi

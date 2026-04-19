@@ -50,6 +50,57 @@ Do not open a public GitHub issue for security vulnerabilities.
 - **Status**: Acknowledged but not exploitable in this deployment model
 - **Expiry**: 2027-06-17
 
+### supercronic: Go stdlib 1.26.1 (CVE-2026-32280, CVE-2026-32282, CVE-2026-33810)
+
+- **Component**: Go standard library 1.26.1 embedded in the `supercronic` binary
+- **Affected Versions**: Go stdlib < 1.26.2
+- **Severity**: HIGH (×3)
+- **Reported by**: Trivy, Docker Scout
+- **Description**: Three HIGH vulnerabilities in Go stdlib 1.26.1, all fixed in Go 1.26.2
+- **Root cause**: `supercronic v0.2.44` (the latest release as of the time of writing)
+  is compiled with Go 1.26.1.  The upstream project has not yet published a release
+  built against Go 1.26.2.
+- **Mitigation**: supercronic is a cron-only scheduler with no network listener.
+  Its attack surface is limited to the scheduled jobs it invokes (i.e. `pfsense-backup`).
+  The Go stdlib CVEs do not affect the cron scheduling functionality used here.
+- **Suppressed in**: `.trivyignore` (gating Trivy scan)
+- **Status**: Acknowledged; will be resolved when upstream supercronic publishes
+  a release compiled with Go ≥ 1.26.2
+- **Tracking**: <https://github.com/aptible/supercronic/releases>
+
+### py3-jmespath: Regex DoS (CVE-2022-32511)
+
+- **Component**: py3-jmespath (transitive via aws-cli)
+- **Affected Versions**: jmespath < 1.0.1 (no fix in Alpine apk)
+- **Severity**: CRITICAL
+- **Reported by**: Grype
+- **Description**: Exponential backtracking in certain JMESPath expressions
+- **Mitigation**: jmespath is used internally by the aws-cli Python library for
+  parsing AWS API responses.  pfsense-backup does not pass untrusted JMESPath
+  expressions to the library; all expressions are static and hardcoded in the
+  aws-cli codebase.
+- **Status**: Acknowledged; no fix available in Alpine Linux at this time.
+
+### python3: CVE-2025-13836
+
+- **Component**: python3 Alpine apk
+- **Severity**: HIGH
+- **Reported by**: Grype
+- **Status**: No fix available in Alpine Linux at this time.
+
+### sqlite / unzip: unfixed Alpine apk vulnerabilities
+
+| CVE | Package | Severity |
+|-----|---------|----------|
+| CVE-2025-70873 | sqlite | HIGH |
+| CVE-2008-0888 | unzip | HIGH |
+
+- **Reported by**: Docker Scout
+- **Mitigation**: sqlite is used internally by Python/aws-cli; unzip is an
+  Alpine system utility not invoked by pfsense-backup.  Neither is exposed
+  to untrusted external input.
+- **Status**: No fix available in Alpine Linux at this time.
+
 ---
 
 `pfsense-backup` connects to a pfSense firewall over SSH, downloads the
