@@ -2,8 +2,8 @@
 # shellcheck shell=bash
 
 # -- GENERATED -- do not edit directly.
-# Template: src/build/generate @ c27eb41
-# Generated: 2026-04-19T22:35:41Z
+# Template: src/build/generate @ 167cac9
+# Generated: 2026-04-19T22:45:39Z
 # Regenerate: bin/build-generate pfsense-backup
 
 # build — local CI equivalent for pfsense-backup.
@@ -116,9 +116,9 @@ set -euo pipefail
 
 # -- GENERATED metadata (informational; enforcement is in CI) --
 # shellcheck disable=SC2034
-GENERATED_AT="2026-04-19T22:35:41Z"
+GENERATED_AT="2026-04-19T22:45:39Z"
 # shellcheck disable=SC2034
-GENERATED_FROM_SHA="c27eb41"
+GENERATED_FROM_SHA="167cac9"
 
 # ---------------------------------------------------------------------------
 # Defaults — may be overridden by environment variables or CLI flags.
@@ -370,12 +370,21 @@ _timed() {
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
+_require_value() {
+    local option="$1"
+    local value="${2:-}"
+    if [[ -z "${value}" || "${value}" == --* ]]; then
+        echo "${option} requires a value" >&2
+        exit 1
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --push)             PUSH=true ;;
-        --version)          VERSION="$2"; shift ;;
-        --platform)         PLATFORMS="$2"; shift ;;
-        --registry)         REGISTRY="$2"; shift ;;
+        --version)          _require_value "$1" "${2:-}"; VERSION="$2"; shift ;;
+        --platform)         _require_value "$1" "${2:-}"; PLATFORMS="$2"; shift ;;
+        --registry)         _require_value "$1" "${2:-}"; REGISTRY="$2"; shift ;;
         --no-sbom)          SBOM=false ;;
         --no-provenance)    PROVENANCE=false ;;
         --no-lint)          LINT=false ;;
