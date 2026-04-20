@@ -810,15 +810,24 @@ test_staging_trivy_scan() {
     }
     printf '  running Trivy scan on %s...\n' "${IMAGE}" >&2
 
-    local _trivy_extra_flags=()
+    local _trivy_db_flags=()
     if [[ "${_CACHE_SKIP_UPDATE_TRIVY}" == "true" ]]; then
         echo "    Trivy DB update skipped for this run (--cache skip-update=trivy)" >&2
-        _trivy_extra_flags+=(--skip-db-update --skip-java-db-update)
+        _trivy_db_flags+=(--skip-db-update --skip-java-db-update)
+    fi
+    local _project_dir
+    _project_dir=$(dirname "$(readlink -f "$0")")/..
+    local _trivy_vol_flags=()
+    local _trivy_ignore_flags=()
+    if [[ -f "${_project_dir}/.trivyignore" ]]; then
+        _trivy_vol_flags+=(-v "${_project_dir}/.trivyignore:/.trivyignore:ro")
+        _trivy_ignore_flags+=(--ignorefile /.trivyignore)
     fi
     local result=0
     docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
         -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
+        "${_trivy_vol_flags[@]}" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
             --quiet \
             --no-progress \
@@ -826,7 +835,8 @@ test_staging_trivy_scan() {
             --ignore-unfixed \
             --severity HIGH,CRITICAL \
             --timeout 5m \
-            "${_trivy_extra_flags[@]}" \
+            "${_trivy_ignore_flags[@]}" \
+            "${_trivy_db_flags[@]}" \
             --input /scan.tar 2>&1 || result=$?
     if [[ ${result} -eq 0 ]]; then
         echo "PASS '${FUNCNAME[0]}': no unfixed HIGH/CRITICAL CVEs found"
