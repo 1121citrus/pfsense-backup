@@ -734,6 +734,50 @@ test_staging_backup_direct() {
     fi
 }
 
+# test_staging_cron_startup: verify the scheduler container starts, writes its
+# crontab, and stays running — no pfSense host or AWS credentials required.
+# Catches Dockerfile permission regressions (e.g. /var/spool/cron/crontabs
+# root-owned via Alpine symlink) that CLI-mode tests cannot exercise.
+test_staging_cron_startup() {
+    local container_id
+    # Use @daily so the job never fires during the test window.
+    # shellcheck disable=SC2086
+    container_id=$(docker run --detach \
+        -e "BUCKET=test.fake-bucket-for-startup-test" \
+        -e "CRON_EXPRESSION=@daily" \
+        ${DOCKER_RUN_ARGS:-} \
+        "${IMAGE}")
+    printf '  container %s started; waiting for scheduler init...\n' \
+        "${container_id:0:12}" >&2
+
+    sleep 3
+
+    local running
+    running=$(docker inspect --format '{{.State.Running}}' "${container_id}" \
+        2>/dev/null || echo "false")
+
+    local crontab_ok=false
+    if [[ "${running}" == "true" ]]; then
+        docker exec "${container_id}" \
+            test -f /var/spool/cron/crontabs/pfsense-backup \
+            > /dev/null 2>&1 && crontab_ok=true
+    fi
+
+    docker stop "${container_id}" > /dev/null 2>&1
+    docker rm   "${container_id}" > /dev/null 2>&1
+
+    if [[ "${running}" != "true" ]]; then
+        echo "FAIL '${FUNCNAME[0]}': container exited within 3s of startup"
+        return 1
+    fi
+    if ! "${crontab_ok}"; then
+        echo "FAIL '${FUNCNAME[0]}': crontab file not found" \
+             "(crontabs directory likely root-owned)"
+        return 1
+    fi
+    echo "PASS '${FUNCNAME[0]}': scheduler running and crontab written"
+}
+
 # test_staging_cron_fires: start the container in service mode with a
 # one-minute schedule, wait for the cron job to fire and complete, then
 # verify the success marker is created.  Provides log-tail feedback every
@@ -946,6 +990,7 @@ run_tests() {
         test_staging_healthcheck_unhealthy_no_supercronic
         test_staging_healthcheck_healthy_grace_period
         test_staging_healthcheck_unhealthy_stale_backup
+        test_staging_cron_startup
         test_staging_backup_downloads_config
         test_staging_backup_xml_has_expected_fields
         test_staging_backup_direct
