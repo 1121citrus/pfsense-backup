@@ -22,10 +22,10 @@ setup() {
     [[ "$output" == *"--cache CACHE_RULES"* ]]
 }
 
-@test "build --advice scout enables Scout advisement stage" {
+@test "build --advice scout is rejected (scout is gating)" {
     run "${BUILD}" --advice scout --dry-run --no-lint --no-test --no-scan
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Stage 5b: Advise (Scout)"* ]]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Unknown advisement"* ]]
 }
 
 @test "build --advise DIVE enables Dive advisement stage" {
@@ -72,11 +72,10 @@ setup() {
     [[ "$output" != *"Stage 5c"* ]]
 }
 
-@test "build --advise scout,dive enables Scout and Dive" {
+@test "build --advise scout,dive is rejected (scout is gating)" {
     run "${BUILD}" --advise scout,dive --dry-run --no-lint --no-test --no-scan
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Stage 5b: Advise (Scout)"* ]]
-    [[ "$output" == *"Stage 5c: Advise (Dive)"* ]]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Unknown advisement"* ]]
 }
 
 @test "build --advise rejects unknown advisement" {
