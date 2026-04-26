@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-04-26
+
+### Fixed
+
+- Remove `chmod +x test/bin/*` from `setup()` in 9 test files; the CI bats
+  container mounts the repo read-only and `chmod` fails on a read-only
+  filesystem. All `test/bin/` stubs are committed as `100755` so the call
+  was redundant.
+
 ## [1.0.1] - 2026-04-25
 
 ### Fixed
@@ -44,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/1121citrus/pfsense-backup/compare/v0.0.2...v1.0.1
 [0.0.2]: https://github.com/1121citrus/pfsense-backup/releases/tag/v0.0.2
