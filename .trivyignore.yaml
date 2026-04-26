@@ -2,33 +2,5 @@
 # Known vulnerabilities tracked in SECURITY.md.
 # Review each entry before the expiry date.
 
-vulnerabilities:
-  # urllib3: Data amplification via decompression bomb (highly compressed HTTP responses).
-  # pfsense-backup only connects to:
-  #   1. pfSense host via SSH (not HTTP)
-  #   2. AWS S3 via HTTPS with trusted certificates
-  # Both use fixed, trusted endpoints. Malicious compression requires attacker-controlled server.
-  - id: CVE-2026-21441
-    statement: "pfsense-backup only connects to trusted endpoints (pfSense SSH, AWS S3); no untrusted HTTP responses"
-    expired_at: "2027-06-17T00:00:00Z"
-
-  # urllib3: Data amplification via decompression bomb (highly compressed HTTP responses).
-  # Same mitigation as CVE-2026-21441 — trusted endpoint communication only.
-  - id: CVE-2025-66471
-    statement: "pfsense-backup only connects to trusted endpoints (pfSense SSH, AWS S3); no untrusted HTTP responses"
-    expired_at: "2027-06-17T00:00:00Z"
-
-  # urllib3: Resource allocation without limits (header parsing DoS).
-  # AWS S3 API uses standard HTTP headers. pfsense-backup does not process
-  # attacker-controlled HTTP headers from untrusted sources.
-  - id: CVE-2025-66418
-    statement: "pfsense-backup connects only to trusted AWS S3; no untrusted HTTP header processing"
-    expired_at: "2027-06-17T00:00:00Z"
-
-  # cryptography: Insufficient verification of data authenticity in ECDSA signature validation.
-  # pfsense-backup uses cryptography for GPG encryption/decryption of backup files (optional).
-  # ECDSA signature verification is not used; the vulnerability requires attacker-controlled
-  # ECDSA signatures, which pfsense-backup does not process.
-  - id: CVE-2026-26007
-    statement: "cryptography used for GPG encryption only; ECDSA signature verification not used in pfsense-backup workflow"
-    expired_at: "2027-06-17T00:00:00Z"
+vulnerabilities: []
+# (empty — gating Trivy scan currently reports 0 vulnerabilities)

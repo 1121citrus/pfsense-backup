@@ -23,7 +23,7 @@ ARG ALPINE_VERSION=alpine@${ALPINE_IMAGE_DIGEST}
 
 ARG PFSENSE_BACKUP_VERSION=
 # ARG PYTHON_VERSION=3.12
-ARG SUPERCRONIC_VERSION=v0.2.44
+ARG SUPERCRONIC_VERSION=v0.2.45
 ARG VERSION=dev
 
 # hadolint ignore=DL3006
@@ -104,9 +104,16 @@ RUN set -eux; \
         'pigz>2.8' \
         'pixz>1.0' \
         'sshpass>1.10' \
+        'py3-pip>23.0' \
         'traceroute>2.1' \
         'xz>5.6' \
         'zip>3.0' \
+    && pip3 install --no-cache-dir --break-system-packages \
+        'cryptography>=46.0.5' \
+        'pip>=25.3' \
+        'urllib3>=2.6.3' \
+        'wheel>=0.46.2' \
+        'zipp>=3.19.1' \
     && echo "[INFO] installing supercronic ${SUPERCRONIC_VERSION}" \
     && SUPERCRONIC_ARCH="$(uname -m \
             | sed 's/x86_64/amd64/;s/aarch64/arm64/')" \
