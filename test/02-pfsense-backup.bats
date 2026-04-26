@@ -96,21 +96,21 @@ teardown() {
 }
 
 @test "name file contains expected filename pattern" {
-    TEST_TMPDIR=$(mktemp -d)
-    chmod o+w "${TEST_TMPDIR}"
-    echo "[DEBUG] TEST_TMPDIR: ${TEST_TMPDIR}"
-    env | sort | grep -E 'PFSENSE|TEST_TMPDIR|HOSTNAME|TZ'
-    run_pfsense_backup \
-        -e PFSENSE_BACKUP_NAME_FILE=/name/result \
-        -v "${TEST_TMPDIR}:/name" > /dev/null
-    echo "[DEBUG] after run_pfsense_backup, ls -l ${TEST_TMPDIR}:"
-    ls -l "${TEST_TMPDIR}"
-    if [ ! -f "${TEST_TMPDIR}/result" ]; then
-        echo "[ERROR] name file not created!"
-        exit 1
-    fi
+    # Run backup and cat the name file in one container invocation to avoid
+    # bind-mount path issues in DinD (host tmpdir path not visible to daemon).
     local name
-    name=$(cat "${TEST_TMPDIR}/result")
+    # shellcheck disable=SC2086
+    name=$(docker run -i --rm ${DOCKER_RUN_ARGS:-} \
+        --entrypoint /bin/bash \
+        -e "PATH=/test/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+        -e PFSENSE_HOST=fake-host \
+        -e PFSENSE_IDENTITY_FILE=/test/fixtures/pfsense-identity.key \
+        -e PFSENSE_IDENTITY_PASSWORD=testpassword \
+        -e PFSENSE_BACKUP_NAME_FILE=/tmp/backup-name \
+        -v "${WHEREAMI}/bin:/test/bin:ro" \
+        -v "${WHEREAMI}/fixtures:/test/fixtures:ro" \
+        "${IMAGE}" \
+        -c '/usr/local/bin/pfsense-backup >/dev/null 2>&1; cat /tmp/backup-name')
     echo "name: ${name}"
     [[ "${name}" == *"-pfsense-v"*"-config-backup.xml" ]]
 }
