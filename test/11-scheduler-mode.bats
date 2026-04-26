@@ -14,7 +14,6 @@
 setup() {
     WHEREAMI="${BATS_TEST_DIRNAME}"
     IMAGE="${IMAGE:-1121citrus/pfsense-backup:latest}"
-    chmod +x "${WHEREAMI}/bin/"*
     export WHEREAMI IMAGE
 
     # Run pfsense-backup with fixed connection env and CLI args after IMAGE.
