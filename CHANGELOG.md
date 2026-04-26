@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-04-26
+
+### Fixed
+
+- `ci.yml` test job: mount Docker socket and install `docker-cli` so bats
+  can run nested `docker run` calls (Docker-in-Docker via host socket).
+  Mount source at `$PWD:$PWD` so nested volume paths resolve correctly on
+  the host daemon; previously the `/code` alias broke inner volume mounts.
+
 ## [1.0.2] - 2026-04-26
 
 ### Fixed
@@ -53,7 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/1121citrus/pfsense-backup/compare/v0.0.2...v1.0.1
 [0.0.2]: https://github.com/1121citrus/pfsense-backup/releases/tag/v0.0.2

@@ -34,9 +34,10 @@ jobs:
       image: 1121citrus/pfsense-backup
 
   # ── Stage 3: Test ──────────────────────────────────────────────────────────
-  # Bats tests mount the project source read-only into the bats container.
-  # Mock binaries in test/bin/ stub aws, ssh, sshpass, and traceroute, so no
-  # host packages are required.  Runs in parallel with build after lint passes.
+  # Bats tests run inside bats/bats and spin up the published :latest image via
+  # Docker-in-Docker (host socket mount).  Source is mounted at $PWD:$PWD so
+  # that nested docker run -v paths resolve correctly on the host daemon.
+  # docker-cli is installed via apk because bats/bats:1.13.0 does not include it.
   test:
     needs: lint
     runs-on: ubuntu-latest
@@ -45,21 +46,26 @@ jobs:
       - name: Run test suites
         run: |
           docker run -i --rm \
-            -v "$PWD:/code:ro" \
-            -w /code \
+            -v "$PWD:$PWD" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -e "IMAGE=${IMAGE}:latest" \
+            --workdir "$PWD" \
+            --entrypoint sh \
             bats/bats:1.13.0 \
-              test/01-build.bats \
-              test/02-pfsense-backup.bats \
-              test/03-backup-required-vars.bats \
-              test/04-backup-success.bats \
-              test/05-backup-encryption.bats \
-              test/06-backup-aws-failure.bats \
-              test/07-backup-xml-validation.bats \
-              test/08-healthcheck.bats \
-              test/09-image-metadata.bats \
-              test/10-pfsense-backup-cli-flags.bats \
-              test/11-scheduler-mode.bats \
-              test/12-multi-bucket.bats
+            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
+                && bats \
+                    test/01-build.bats \
+                    test/02-pfsense-backup.bats \
+                    test/03-backup-required-vars.bats \
+                    test/04-backup-success.bats \
+                    test/05-backup-encryption.bats \
+                    test/06-backup-aws-failure.bats \
+                    test/07-backup-xml-validation.bats \
+                    test/08-healthcheck.bats \
+                    test/09-image-metadata.bats \
+                    test/10-pfsense-backup-cli-flags.bats \
+                    test/11-scheduler-mode.bats \
+                    test/12-multi-bucket.bats"
 
   # ── Stage 3b: Image smoke test ─────────────────────────────────────────────
   # Run built-image smoke tests to catch packaging/runtime regressions not
