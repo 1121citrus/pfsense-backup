@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 # shellcheck shell=bash
+# shellcheck disable=SC2016  # single-quoted 'bash -c' strings expand in subshell
 # test/13-source-coverage.bats — direct-execution coverage tests.
 #
 # Run source scripts directly (not via Docker) so kcov can instrument them.
@@ -36,10 +37,21 @@ setup() {
     export PFSENSE_SSH_KNOWN_HOSTS_FILE="${TEST_TMPDIR}/known_hosts"
     # Point the ssh mock to the test fixture.
     export SSH_FIXTURE_FILE="${TEST_FIXTURES}/config.xml"
+
+    # Crontab directory for healthcheck tests.
+    mkdir -p /var/spool/cron/crontabs
+
+    # pgrep stub: simulate supercronic running (exit 0 always).
+    STUB_DIR="${TEST_TMPDIR}/stubs"
+    mkdir -p "${STUB_DIR}"
+    printf '#!/bin/sh\nexec /bin/true\n' > "${STUB_DIR}/pgrep"
+    chmod +x "${STUB_DIR}/pgrep"
+    export STUB_DIR
 }
 
 teardown() {
     rm -rf "${TEST_TMPDIR:-}"
+    rm -f "/var/spool/cron/crontabs/$(id -un)"
 }
 
 # ── src/common-functions ──────────────────────────────────────────────────────
@@ -137,92 +149,100 @@ teardown() {
     [[ "$output" == *"crontab"* ]]
 }
 
-@test "healthcheck: has_cronjob_run exits 0 when success file is fresh" {
-    touch "${HEALTHCHECK_SUCCESS_FILE}"
-    # Source only the function definitions (not the is_healthy || exit 1 call).
+@test "healthcheck: exits non-zero when supercronic is not running" {
+    printf '%s\n' '@daily /usr/local/bin/pfsense-backup' \
+        > "/var/spool/cron/crontabs/$(id -un)"
+    # Omit STUB_DIR from PATH so real pgrep finds no supercronic process.
     run env \
+        DEBUG=true \
         INCLUDE_DIR="${INCLUDE_DIR}" \
-        REPO_ROOT="${REPO_ROOT}" \
         HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE}" \
         HEALTHCHECK_STARTUP_FILE="${HEALTHCHECK_STARTUP_FILE}" \
         HEALTHCHECK_MAX_AGE_SECONDS=300 \
         HEALTHCHECK_STARTUP_GRACE_SECONDS=300 \
-        bash -c '
-            source "${INCLUDE_DIR}/common-functions"
-            source <(sed "/^is_healthy/d" "${REPO_ROOT}/src/healthcheck")
-            has_cronjob_run
-        '
+        bash "${REPO_ROOT}/src/healthcheck"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"supercronic is not running"* ]]
+}
+
+@test "healthcheck: exits 0 when crontab ok, supercronic mocked, fresh success file" {
+    printf '%s\n' '@daily /usr/local/bin/pfsense-backup' \
+        > "/var/spool/cron/crontabs/$(id -un)"
+    touch "${HEALTHCHECK_SUCCESS_FILE}"
+    run env \
+        DEBUG=true \
+        INCLUDE_DIR="${INCLUDE_DIR}" \
+        PATH="${STUB_DIR}:${PATH}" \
+        HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE}" \
+        HEALTHCHECK_STARTUP_FILE="${HEALTHCHECK_STARTUP_FILE}" \
+        HEALTHCHECK_MAX_AGE_SECONDS=3600 \
+        HEALTHCHECK_STARTUP_GRACE_SECONDS=900 \
+        bash "${REPO_ROOT}/src/healthcheck"
     [ "$status" -eq 0 ]
 }
 
-@test "healthcheck: has_cronjob_run exits 0 when within startup grace" {
-    # Startup file is fresh; no success file → within_grace=true → healthy.
+@test "healthcheck: exits 0 when within startup grace and no success file" {
+    printf '%s\n' '@daily /usr/local/bin/pfsense-backup' \
+        > "/var/spool/cron/crontabs/$(id -un)"
     touch "${HEALTHCHECK_STARTUP_FILE}"
     run env \
+        DEBUG=true \
         INCLUDE_DIR="${INCLUDE_DIR}" \
-        REPO_ROOT="${REPO_ROOT}" \
+        PATH="${STUB_DIR}:${PATH}" \
         HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE}" \
         HEALTHCHECK_STARTUP_FILE="${HEALTHCHECK_STARTUP_FILE}" \
-        HEALTHCHECK_MAX_AGE_SECONDS=300 \
-        HEALTHCHECK_STARTUP_GRACE_SECONDS=300 \
-        bash -c '
-            source "${INCLUDE_DIR}/common-functions"
-            source <(sed "/^is_healthy/d" "${REPO_ROOT}/src/healthcheck")
-            has_cronjob_run
-        '
+        HEALTHCHECK_MAX_AGE_SECONDS=3600 \
+        HEALTHCHECK_STARTUP_GRACE_SECONDS=3600 \
+        bash "${REPO_ROOT}/src/healthcheck"
     [ "$status" -eq 0 ]
 }
 
-@test "healthcheck: has_cronjob_run exits non-zero when backup is stale" {
-    touch "${HEALTHCHECK_SUCCESS_FILE}"
-    # Use -1 so that (( backup_age <= -1 )) is always false regardless of file age.
+@test "healthcheck: exits non-zero when success file is stale" {
+    printf '%s\n' '@daily /usr/local/bin/pfsense-backup' \
+        > "/var/spool/cron/crontabs/$(id -un)"
+    touch -t 200001010000.00 "${HEALTHCHECK_SUCCESS_FILE}"
     run env \
+        DEBUG=true \
         INCLUDE_DIR="${INCLUDE_DIR}" \
-        REPO_ROOT="${REPO_ROOT}" \
+        PATH="${STUB_DIR}:${PATH}" \
         HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE}" \
         HEALTHCHECK_STARTUP_FILE="${HEALTHCHECK_STARTUP_FILE}" \
-        HEALTHCHECK_MAX_AGE_SECONDS=-1 \
-        HEALTHCHECK_STARTUP_GRACE_SECONDS=-1 \
-        bash -c '
-            source "${INCLUDE_DIR}/common-functions"
-            source <(sed "/^is_healthy/d" "${REPO_ROOT}/src/healthcheck")
-            has_cronjob_run
-        '
+        HEALTHCHECK_MAX_AGE_SECONDS=1 \
+        HEALTHCHECK_STARTUP_GRACE_SECONDS=1 \
+        bash "${REPO_ROOT}/src/healthcheck"
     [ "$status" -ne 0 ]
     [[ "$output" == *"too old"* ]]
 }
 
-@test "healthcheck: has_cronjob_run exits non-zero when grace exceeded" {
-    touch "${HEALTHCHECK_STARTUP_FILE}"
+@test "healthcheck: exits non-zero when startup grace is exceeded" {
+    printf '%s\n' '@daily /usr/local/bin/pfsense-backup' \
+        > "/var/spool/cron/crontabs/$(id -un)"
+    touch -t 200001010000.00 "${HEALTHCHECK_STARTUP_FILE}"
     run env \
+        DEBUG=true \
         INCLUDE_DIR="${INCLUDE_DIR}" \
-        REPO_ROOT="${REPO_ROOT}" \
+        PATH="${STUB_DIR}:${PATH}" \
         HEALTHCHECK_SUCCESS_FILE="${HEALTHCHECK_SUCCESS_FILE}" \
         HEALTHCHECK_STARTUP_FILE="${HEALTHCHECK_STARTUP_FILE}" \
-        HEALTHCHECK_MAX_AGE_SECONDS=-1 \
-        HEALTHCHECK_STARTUP_GRACE_SECONDS=-1 \
-        bash -c '
-            source "${INCLUDE_DIR}/common-functions"
-            source <(sed "/^is_healthy/d" "${REPO_ROOT}/src/healthcheck")
-            has_cronjob_run
-        '
+        HEALTHCHECK_MAX_AGE_SECONDS=1 \
+        HEALTHCHECK_STARTUP_GRACE_SECONDS=1 \
+        bash "${REPO_ROOT}/src/healthcheck"
     [ "$status" -ne 0 ]
     [[ "$output" == *"grace period exceeded"* ]]
 }
 
-@test "healthcheck: has_cronjob_run exits non-zero when no markers at all" {
+@test "healthcheck: exits non-zero when no markers at all" {
+    printf '%s\n' '@daily /usr/local/bin/pfsense-backup' \
+        > "/var/spool/cron/crontabs/$(id -un)"
     run env \
+        DEBUG=true \
         INCLUDE_DIR="${INCLUDE_DIR}" \
-        REPO_ROOT="${REPO_ROOT}" \
+        PATH="${STUB_DIR}:${PATH}" \
         HEALTHCHECK_SUCCESS_FILE="${TEST_TMPDIR}/no-success-file" \
         HEALTHCHECK_STARTUP_FILE="${TEST_TMPDIR}/no-startup-file" \
         HEALTHCHECK_MAX_AGE_SECONDS=300 \
         HEALTHCHECK_STARTUP_GRACE_SECONDS=300 \
-        bash -c '
-            source "${INCLUDE_DIR}/common-functions"
-            source <(sed "/^is_healthy/d" "${REPO_ROOT}/src/healthcheck")
-            has_cronjob_run
-        '
+        bash "${REPO_ROOT}/src/healthcheck"
     [ "$status" -ne 0 ]
     [[ "$output" == *"missing both"* ]]
 }
