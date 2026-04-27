@@ -337,7 +337,7 @@ GitHub Actions currently runs suites `01` through `12` in a single CI job.
 
 Component | Source | License
 --- | --- | ---
-Alpine Linux base image | [hub.docker.com/_/alpine](https://hub.docker.com/_/alpine) | MIT / various
+aws-backup-base (Amazon Linux 2023) | [hub.docker.com/r/1121citrus/aws-backup-base](https://hub.docker.com/r/1121citrus/aws-backup-base) | AGPL-3.0-or-later
 aws-cli | [github.com/aws/aws-cli](https://github.com/aws/aws-cli) | Apache-2.0
 GnuPG | [gnupg.org](https://gnupg.org) | GPL-2.0
 OpenSSH | [openssh.com](https://www.openssh.com) | BSD-style

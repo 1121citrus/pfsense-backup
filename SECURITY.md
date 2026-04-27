@@ -20,7 +20,7 @@ an S3 bucket. The attack surface is limited to:
 
 ---
 
-## CVE Status (Last Reviewed 2026-04-25)
+## CVE Status (Last Reviewed 2026-04-27)
 
 Advisory scans are run with Trivy (gating), Grype, and Docker Scout. The
 tables below reflect the state after the most recent build.
@@ -31,51 +31,23 @@ tables below reflect the state after the most recent build.
 | --- | --- |
 | **0 vulnerabilities** | Gating scan passes; build is not blocked. |
 
-### Fixed by Dockerfile Pip Upgrade
+### Open Vulnerabilities
 
-The following CVEs were remediated by pip-installing patched versions over
-the Alpine-packaged versions (or pip's own bundled dependencies). The pip
-step runs in the same `RUN` layer as the `apk add` installs.
+None. The migration to Amazon Linux 2023 (v1.0.5, 2026-04-27) resolved all
+previously documented Alpine-specific CVEs. CI runs Trivy, Grype, and Docker
+Scout on every push; any new findings will be tracked here.
 
-| Package | Installed (apk/pip) | Fixed (pip) | CVEs | Severity |
-| --- | --- | --- | --- | --- |
-| `cryptography` | 44.0.3-r0 | ≥46.0.5 | CVE-2026-26007 | High |
-| `urllib3` | 1.26.20-r1 | ≥2.6.3 | CVE-2026-21441, CVE-2025-66471, CVE-2025-66418 | High |
-| `wheel` | 0.45.1 (pip dep) | ≥0.46.2 | CVE-2026-24049 | High |
-| `pip` | 25.1.1-r0 | ≥25.3 | CVE-2025-8869 | Medium |
-| `zipp` | 3.17.0 (pip dep) | ≥3.19.1 | CVE-2024-5569 | Medium |
+### Remediated Vulnerabilities
 
-### Fixed by Supercronic Upgrade
-
-| Package | Old Version | New Version | CVEs Fixed | Severity |
-| --- | --- | --- | --- | --- |
-| `supercronic` | v0.2.44 (Go 1.26.1) | v0.2.45 (Go ≥1.26.2) | CVE-2026-32280, CVE-2026-32281, CVE-2026-32282, CVE-2026-32283, CVE-2026-33810 | High |
-
-### Unfixed — No Patch Available in Alpine 3.22
-
-The following findings have no available fix. None affect the primary threat
-surface (see threat model above).
-
-| Package | Version | CVE | Severity | Notes |
-| --- | --- | --- | --- | --- |
-| `python3` | 3.12.13-r0 | CVE-2025-13836 | High | No Alpine fix available |
-| `unzip` | 6.0-r15 | CVE-2008-0888 | High | No Alpine fix; unzip not network-facing |
-| `sqlite` | 3.49.2-r1 | CVE-2025-70873 | High | No Alpine fix; sqlite is a transitive dependency |
-| `py3-urllib3` (apk) | 1.26.20-r1 | CVE-2025-66471, CVE-2025-66418 | High | Alpine apk metadata superseded by pip-installed urllib3 ≥2.6.3; advisory scanners may still flag the apk metadata entry |
-| `py3-cryptography` (apk) | 44.0.3-r0 | CVE-2026-26007 | High | Alpine apk metadata superseded by pip-installed ≥46.0.5; advisory scanners may still flag the apk metadata entry |
-| `py3-pip` (apk) | 25.1.1-r0 | CVE-2025-8869, CVE-2026-1703 | Med/Low | Alpine apk metadata superseded by pip-installed ≥25.3; advisory scanners may still flag the apk metadata entry |
-| `wheel` (pip-vendored) | 0.45.1 | CVE-2026-24049 | High | pip internally vendors a copy of wheel for bootstrap; distinct from the standalone package (upgraded to ≥0.46.2). Cannot be upgraded externally. Trivy confirms 0 vulns for the standalone installed package. |
-| `busybox` | 1.37.0-r20 | CVE-2025-60876 | Medium | No Alpine fix available |
-| `openssh` | 10.0_p1-r10 | CVE-2026-35414 | Medium | No Alpine fix available |
-| `openldap` | 2.6.8-r0 | CVE-2026-22185 | Medium | No Alpine fix; openldap is a transitive dependency |
-| `gnupg` (and sub-packages) | 2.4.9-r0 | CVE-2022-3219 | Low | No Alpine fix |
-| `lz4` | 1.10.0-r0 | CVE-2025-62813 | Unspecified | No Alpine fix; lz4 is a transitive dependency |
-
-### False Positives
-
-| Package | Version | CVE | Tool | Reason |
-| --- | --- | --- | --- | --- |
-| `py3-jmespath` | 1.0.1-r4 | CVE-2022-32511 | Grype | Fixed in jmespath 1.0.1; installed version 1.0.1-r4 is at or above the fix version — Grype stale database entry |
+| CVE / Advisory | Component | Remediation |
+| --- | --- | --- |
+| Alpine APK CVEs (multiple) | `python3`, `busybox`, `openssh`, `unzip`, `sqlite`, `py3-urllib3`, `py3-cryptography` | Resolved by migrating base image from Alpine 3.22 to AL2023 (v1.0.5) |
+| CVE-2026-32280 — CVE-2026-33810 | supercronic Go stdlib | Resolved: `aws-backup-base` now ships supercronic v0.2.45 (Go ≥1.26.2) |
+| CVE-2026-26007 | cryptography (pip) | Pinned `cryptography>=47.0.0` in `requirements.txt` (via `aws-backup-base`) |
+| CVE-2026-21441, CVE-2025-66471, CVE-2025-66418 | urllib3 (pip) | Pinned `urllib3>=2.6.3` in `requirements.txt` (via `aws-backup-base`) |
+| CVE-2026-24049 | wheel (pip) | Pinned `wheel>=0.47.0` in `requirements.txt` (via `aws-backup-base`) |
+| CVE-2025-8869 | pip | Upgraded to pip≥25.3 (via `aws-backup-base`) |
+| CVE-2024-5569 | zipp (pip) | Pinned `zipp>=3.23.1` in `requirements.txt` (via `aws-backup-base`) |
 
 ---
 
@@ -158,10 +130,11 @@ No process inside the container listens on a network port.
 
 ## Dependency Supply Chain
 
-The `Dockerfile` installs packages from the Alpine Linux APK repository. All
-packages are version-pinned with minimum version constraints. The CI pipeline
-runs a [Trivy](https://github.com/aquasecurity/trivy) vulnerability scan
-against the pushed image on every merge to `main`.
+The image extends `1121citrus/aws-backup-base` (Amazon Linux 2023). Additional
+packages are installed via `dnf` and Python packages via pip with minimum
+version constraints in `requirements.txt`. The CI pipeline runs
+[Trivy](https://github.com/aquasecurity/trivy), Grype, and Docker Scout
+vulnerability scans against the pushed image on every merge to `main`.
 
 Multi-platform images pushed to Docker Hub include:
 
