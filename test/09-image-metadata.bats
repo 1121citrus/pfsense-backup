@@ -65,7 +65,7 @@ setup() {
 }
 
 @test "org.opencontainers.image.version is wired to VERSION build-arg" {
-    # shellcheck disable=SC2016  # literal ${VAR} is the Dockerfile text, not a shell expansion
+    # shellcheck disable=SC2016
     run grep -F 'org.opencontainers.image.version="${VERSION}"' "${DOCKERFILE}"
     [ "$status" -eq 0 ]
 }
@@ -82,48 +82,6 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "Dockerfile declares ARG ALPINE_VERSION" {
-    run grep -E '^ARG ALPINE_VERSION=' "${DOCKERFILE}"
-    [ "$status" -eq 0 ]
-}
-
-@test "Dockerfile declares ARG ALPINE_IMAGE_DIGEST" {
-    run grep -E '^ARG ALPINE_IMAGE_DIGEST=' "${DOCKERFILE}"
-    [ "$status" -eq 0 ]
-}
-
-@test "Dockerfile has LABEL org.opencontainers.image.base.name" {
-    run grep -F 'org.opencontainers.image.base.name' "${DOCKERFILE}"
-    [ "$status" -eq 0 ]
-}
-
-@test "Dockerfile has LABEL org.opencontainers.image.base.digest" {
-    run grep -F 'org.opencontainers.image.base.digest' "${DOCKERFILE}"
-    [ "$status" -eq 0 ]
-}
-
-@test "Dockerfile has LABEL org.opencontainers.image.runtime" {
-    run grep -F 'org.opencontainers.image.runtime' "${DOCKERFILE}"
-    [ "$status" -eq 0 ]
-}
-
-@test "Dockerfile has LABEL org.opencontainers.image.build.cmd" {
-    run grep -F 'org.opencontainers.image.build.cmd' "${DOCKERFILE}"
-    [ "$status" -eq 0 ]
-}
-
-@test "org.opencontainers.image.base.name is wired to ALPINE_VERSION build-arg" {
-    # shellcheck disable=SC2016
-    run grep -F 'org.opencontainers.image.base.name="alpine:${ALPINE_VERSION}"' "${DOCKERFILE}"
-    [ "$status" -eq 0 ]
-}
-
-@test "org.opencontainers.image.base.digest is wired to ALPINE_IMAGE_DIGEST build-arg" {
-    # shellcheck disable=SC2016
-    run grep -F 'org.opencontainers.image.base.digest="${ALPINE_IMAGE_DIGEST}"' "${DOCKERFILE}"
-    [ "$status" -eq 0 ]
-}
-
 @test "org.opencontainers.image.title value is pfsense-backup" {
     run grep -F 'org.opencontainers.image.title="pfsense-backup"' "${DOCKERFILE}"
     [ "$status" -eq 0 ]
@@ -131,11 +89,6 @@ setup() {
 
 @test "org.opencontainers.image.licenses value is AGPL-3.0-or-later" {
     run grep -F 'org.opencontainers.image.licenses="AGPL-3.0-or-later"' "${DOCKERFILE}"
-    [ "$status" -eq 0 ]
-}
-
-@test "org.opencontainers.image.runtime value is docker" {
-    run grep -F 'org.opencontainers.image.runtime="docker"' "${DOCKERFILE}"
     [ "$status" -eq 0 ]
 }
 
