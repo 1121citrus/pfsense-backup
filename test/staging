@@ -60,6 +60,7 @@
 #                                 (default: ~/.secrets/aws-credentials)
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
 #                                 Inline AWS credentials (alternative to config files)
+#   DRYRUN                        Alias for AWS_DRYRUN (project-wide naming)
 #   AWS_DRYRUN                    true = no real S3 writes; false = live writes
 #   STAGING_SCAN                  true/false — controls Trivy scan (default: true)
 #   DOCKER_RUN_ARGS               Extra flags appended to every docker run invocation
@@ -119,6 +120,10 @@ AWS_S3_BUCKET_NAME="${AWS_S3_BUCKET_NAME:-}"
 AWS_CONFIG_FILE="${AWS_CONFIG_FILE:-}"
 AWS_CREDENTIALS_FILE="${AWS_CREDENTIALS_FILE:-}"
 DOCKER_RUN_ARGS="${DOCKER_RUN_ARGS:-}"
+
+# Accept DRYRUN as a project-wide alias for AWS_DRYRUN.
+[[ -n "${DRYRUN:-}" ]] && AWS_DRYRUN="${DRYRUN}"
+
 _YES=false
 _ONLY_TEST=""
 _SCAN="${STAGING_SCAN:-true}"
