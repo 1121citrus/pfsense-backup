@@ -1,130 +1,40 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
-# pfsense-backup: end-to-end staging tests against live systems.
-#
-# These tests require a real pfSense host, real AWS credentials, or both.
-# They are NOT run in CI.  See test/TESTING.md for setup and usage.
-#
-# Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
-# SPDX-License-Identifier: AGPL-3.0-or-later
-#
-# SYNOPSIS
-#   test/staging [options] [IMAGE]
-#
-# OPTIONS
-#   IMAGE                         Docker image to test (positional; also --image)
-#   --image IMAGE                 Docker image to test (env: IMAGE)
-#   --host HOST                   pfSense hostname or IP (env: PFSENSE_HOST)
-#   --user USER                   SSH username (env: PFSENSE_USER;
-#                                 default: remote-backup)
-#   --identity-file FILE          SSH identity file (env: PFSENSE_IDENTITY_FILE)
-#   --identity-password PASS      SSH identity passphrase (env: PFSENSE_IDENTITY_PASSWORD)
-#   --identity-password-file FILE File containing the SSH passphrase
-#                                 (env: PFSENSE_IDENTITY_PASSWORD_FILE)
-#   --compression FORMAT          Backup compression format (env: COMPRESSION)
-#   --bucket BUCKET               S3 bucket for backup uploads (env: AWS_S3_BUCKET_NAME)
-#   --aws-config FILE             AWS config file path
-#                                 (env: AWS_CONFIG_FILE;
-#                                 default: ~/.secrets/aws-config)
-#   --aws-credentials FILE        AWS credentials file path
-#                                 (env: AWS_CREDENTIALS_FILE;
-#                                 default: ~/.secrets/aws-credentials)
-#   --dryrun                      Enable S3 dry-run (env: AWS_DRYRUN; default: auto)
-#   --no-dryrun                   Disable S3 dry-run (write real objects)
-#   --scan                        Run Trivy HIGH/CRITICAL scan (default)
-#   --no-scan                     Skip Trivy scan; implies --no-advise unless
-#                                 --advise is given explicitly
-#   --no-coverage                 Skip the kcov bash coverage report (advisory only)
-#   --advise [LIST]               Run advisory scans: coverage,grype,scout,dive,all
-#                                 (default with no list given: all)
-#                                 Advisory scans are off by default.
-#   --no-advise                   Disable all advisory scans
-#   --cache CACHE_RULES           One-run cache controls for scanner DBs.
-#                                 Rule format: 'reset=<targets>;skip-update=<targets>'
-#                                 Targets: trivy, grype, all (comma-delimited)
-#                                 Examples:
-#                                   --cache 'reset=all'
-#                                   --cache 'skip-update=grype'
-#                                   --cache 'reset=grype;skip-update=trivy'
-#   --yes                         Skip the "yes" confirmation prompt
-#   --test TEST                   Run only the named test function
-#   -h, --help                    Print this message and exit
-#
-# ENVIRONMENT
-#   IMAGE                         Docker image to test
-#   AWS_S3_BUCKET_NAME            S3 bucket for backup uploads
-#   AWS_CONFIG_FILE               Path to AWS config file
-#                                 (default: ~/.secrets/aws-config)
-#   AWS_CREDENTIALS_FILE          Path to AWS credentials file
-#                                 (default: ~/.secrets/aws-credentials)
-#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
-#                                 Inline AWS credentials (alternative to config files)
-#   DRYRUN                        Alias for AWS_DRYRUN (project-wide naming)
-#   AWS_DRYRUN                    true = no real S3 writes; false = live writes
-#   STAGING_SCAN                  true/false — controls Trivy scan (default: true)
-#   DOCKER_RUN_ARGS               Extra flags appended to every docker run invocation
-#   PFSENSE_HOST                  pfSense hostname or IP
-#   PFSENSE_USER                  SSH username (default: remote-backup)
-#   PFSENSE_IDENTITY_FILE         Path to SSH identity file
-#   PFSENSE_IDENTITY_PASSWORD     Passphrase for the SSH identity (or a readable
-#                                 file path, treated as PFSENSE_IDENTITY_PASSWORD_FILE)
-#   PFSENSE_IDENTITY_PASSWORD_FILE
-#                                 Path to a file containing the SSH passphrase
-#   COMPRESSION                   Backup compression format (optional)
-#
-# EXAMPLES
-#   # Image-only smoke tests (no credentials needed):
-#   test/staging 1121citrus/pfsense-backup:latest
-#
-#   # Quick iteration — skip scan:
-#   test/staging --no-scan 1121citrus/pfsense-backup:latest
-#
-#   # Full test suite against a live pfSense host and S3 bucket:
-#   test/staging \
-#       --host 192.168.1.1 \
-#       --identity-file ~/.ssh/pfsense_id \
-#       --identity-password-file ~/.secrets/pfsense-password \
-#       --bucket test.my-backups \
-#       --aws-config ~/.secrets/aws-config \
-#       --aws-credentials ~/.secrets/aws-credentials \
-#       1121citrus/pfsense-backup:latest
-#
-#   # Skip confirmation prompt (CI / scripted use):
-#   test/staging --host 192.168.1.1 --identity-file ~/.ssh/pfsense_id \
-#       --identity-password-file ~/.secrets/pfsense-password \
-#       --bucket test.my-backups --yes \
-#       1121citrus/pfsense-backup:latest
-#
-#   # Reset scanner DB caches for this run, then skip Grype DB update:
-#   test/staging --cache 'reset=all;skip-update=grype' \
-#       1121citrus/pfsense-backup:latest
-#
-#   # Run only the cron test:
-#   test/staging --test test_staging_cron_fires \
-#       1121citrus/pfsense-backup:latest
+# test/staging — functional staging tests for pfsense-backup.
+# Auto-generated by build-generate. DO NOT EDIT.
+# Run via: dev/bin/pfsense-backup-staging [TAG]
 
 set -euo pipefail
+
+# Tool image pins
+BATS_KCOV_IMAGE=1121citrus/bats-kcov
+BATS_KCOV_TAG=latest
+DIVE_IMAGE=wagoodman/dive
+DIVE_TAG=v0.13.1
+GRYPE_IMAGE=anchore/grype
+GRYPE_TAG=v0.87.0
+TRIVY_IMAGE=aquasec/trivy
+TRIVY_TAG=0.62.1
+ALPINE_IMAGE=alpine
+ALPINE_TAG=3.21
+
+# Named Docker volumes for scanner DB caches
+TRIVY_CACHE_VOLUME=pfsense-backup-staging-trivy-cache
+GRYPE_CACHE_VOLUME=pfsense-backup-staging-grype-cache
 
 # ---------------------------------------------------------------------------
 # Defaults — overridden by environment variables, then by CLI flags.
 # ---------------------------------------------------------------------------
 IMAGE="${IMAGE:-}"
-PFSENSE_HOST="${PFSENSE_HOST:-}"
-PFSENSE_USER="${PFSENSE_USER:-}"
-PFSENSE_IDENTITY_FILE="${PFSENSE_IDENTITY_FILE:-}"
-PFSENSE_IDENTITY_PASSWORD="${PFSENSE_IDENTITY_PASSWORD:-}"
-PFSENSE_IDENTITY_PASSWORD_FILE="${PFSENSE_IDENTITY_PASSWORD_FILE:-}"
-COMPRESSION="${COMPRESSION:-}"
-AWS_S3_BUCKET_NAME="${AWS_S3_BUCKET_NAME:-}"
+S3_BUCKET_NAME="${S3_BUCKET_NAME:-${AWS_S3_BUCKET_NAME:-${BUCKET:-}}}"
+BUCKET_LIST="${BUCKET_LIST:-}"
 AWS_CONFIG_FILE="${AWS_CONFIG_FILE:-}"
 AWS_CREDENTIALS_FILE="${AWS_CREDENTIALS_FILE:-}"
-DOCKER_RUN_ARGS="${DOCKER_RUN_ARGS:-}"
-
-# Accept DRYRUN as a project-wide alias for AWS_DRYRUN.
-[[ -n "${DRYRUN:-}" ]] && AWS_DRYRUN="${DRYRUN}"
-
+DRYRUN="${DRYRUN:-true}"
 _YES=false
+DOCKER_RUN_ARGS="${DOCKER_RUN_ARGS:-}"
+_SKIP_E2E=false
 _ONLY_TEST=""
 _SCAN="${STAGING_SCAN:-true}"
 _ADVISE_COVERAGE=false
@@ -136,40 +46,35 @@ _CACHE_RESET_TRIVY=false
 _CACHE_RESET_GRYPE=false
 _CACHE_SKIP_UPDATE_TRIVY=false
 _CACHE_SKIP_UPDATE_GRYPE=false
+HOST="${HOST:-}"
+REMOTE_USER="${REMOTE_USER:-}"
+REMOTE_PASSWORD="${REMOTE_PASSWORD:-}"
+REMOTE_PASSWORD_FILE="${REMOTE_PASSWORD_FILE:-}"
+IDENTITY_FILE="${IDENTITY_FILE:-}"
+IDENTITY_PASSWORD_FILE="${IDENTITY_PASSWORD_FILE:-}"
 
-# Tool image refs — keep in sync with the top-level build script.
-BATS_KCOV_IMAGE=1121citrus/bats-kcov
-BATS_KCOV_TAG=latest
-DIVE_IMAGE=wagoodman/dive
-DIVE_TAG=v0.13.1
-GRYPE_IMAGE=anchore/grype
-GRYPE_TAG=v0.87.0
-TRIVY_IMAGE=aquasec/trivy
-TRIVY_TAG=0.62.1
-
-TRIVY_CACHE_VOLUME=pfsense-backup-staging-trivy-cache
-GRYPE_CACHE_VOLUME=pfsense-backup-staging-grype-cache
-
+# ---------------------------------------------------------------------------
+# Utility functions
+# ---------------------------------------------------------------------------
 _set_cache_targets() {
     local mode="$1" targets_csv="$2" target
     IFS=',' read -ra _tgts <<< "${targets_csv,,}"
     for target in "${_tgts[@]}"; do
         case "${target}" in
             trivy)
-                if [[ "${mode}" == "reset" ]];       then _CACHE_RESET_TRIVY=true; fi
-                if [[ "${mode}" == "skip-update" ]]; then _CACHE_SKIP_UPDATE_TRIVY=true; fi
+                [[ "${mode}" == "reset" ]]       && _CACHE_RESET_TRIVY=true
+                [[ "${mode}" == "skip-update" ]] && _CACHE_SKIP_UPDATE_TRIVY=true
                 ;;
             grype)
-                if [[ "${mode}" == "reset" ]];       then _CACHE_RESET_GRYPE=true; fi
-                if [[ "${mode}" == "skip-update" ]]; then _CACHE_SKIP_UPDATE_GRYPE=true; fi
+                [[ "${mode}" == "reset" ]]       && _CACHE_RESET_GRYPE=true
+                [[ "${mode}" == "skip-update" ]] && _CACHE_SKIP_UPDATE_GRYPE=true
                 ;;
             all)
-                if [[ "${mode}" == "reset" ]]; then
-                    _CACHE_RESET_TRIVY=true; _CACHE_RESET_GRYPE=true
-                fi
-                if [[ "${mode}" == "skip-update" ]]; then
-                    _CACHE_SKIP_UPDATE_TRIVY=true; _CACHE_SKIP_UPDATE_GRYPE=true
-                fi
+                [[ "${mode}" == "reset" ]] && {
+                    _CACHE_RESET_TRIVY=true; _CACHE_RESET_GRYPE=true; }
+                [[ "${mode}" == "skip-update" ]] && {
+                    _CACHE_SKIP_UPDATE_TRIVY=true
+                    _CACHE_SKIP_UPDATE_GRYPE=true; }
                 ;;
             *) echo "Unknown cache target: ${target}" >&2; exit 1 ;;
         esac
@@ -196,44 +101,52 @@ _reset_cache_db() {
     local volume_name="$1"
     docker run --rm \
         -v "${volume_name}:/cache" \
-        alpine:3.21 \
+        "${ALPINE_IMAGE}:${ALPINE_TAG}" \
         sh -c "rm -rf /cache/* && mkdir -p /cache"
 }
 
 show_help() {
-    # Extract the header comment from SYNOPSIS through EXAMPLES (inclusive).
     sed -n '/^# SYNOPSIS/,/^set -/p' "$0" \
         | grep '^#' \
         | sed 's/^# \{0,1\}//'
 }
 
-# ---------------------------------------------------------------------------
-# Setup
-# ---------------------------------------------------------------------------
+_SKIP_COUNT=0
+_skip() {
+    echo "SKIP '${FUNCNAME[1]}': $*"
+    (( ++_SKIP_COUNT )) || true
+}
 
+_aws_available() {
+    local bucket="${S3_BUCKET_NAME:-${BUCKET_LIST:-}}"
+    [[ -n "${bucket}" ]] && {
+        [[ -r "${_aws_cfg:-/nonexistent}" ]] || \
+        [[ -r "${_aws_creds:-/nonexistent}" ]] || \
+        [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]
+    }
+}
+
+_host_available() {
+    [[ -n "${HOST:-}" ]]
+}
+
+# ---------------------------------------------------------------------------
+# setup — verify image, copy credentials, create scan archive, call hooks
+# ---------------------------------------------------------------------------
 setup() {
     [[ -n "${IMAGE}" ]] || {
         echo "ERROR: IMAGE is not set" >&2
         echo "       Pass it as a positional arg or use --image IMAGE" >&2
         return 1
     }
-    if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
-        echo "ERROR: image '${IMAGE}' not found in local Docker daemon" >&2
-        echo "       Build it first with: ./build" >&2
+    docker image inspect "${IMAGE}" > /dev/null 2>&1 || {
+        echo "ERROR: image not found locally: ${IMAGE}" >&2
+        echo "       Pull or build it first: ./build --no-scan" >&2
         return 1
-    fi
-    if ! docker run --rm --entrypoint /bin/sh \
-           "${IMAGE}" -c 'test -x /usr/local/bin/backup' 2>/dev/null; then
-        echo "ERROR: /usr/local/bin/backup missing or not executable in '${IMAGE}'" >&2
-        return 1
-    fi
+    }
 
-    # Resolve the AWS config file path once so each test does not re-derive it.
+    # AWS credential temp copies (world-readable for UID 10001 inside container)
     _aws_cfg="${AWS_CONFIG_FILE:-${HOME}/.secrets/aws-config}"
-
-    # The image runs as a non-root user (UID 10001).  A mode-600 file owned by
-    # the host user is unreadable inside the container.  Create a world-readable
-    # temp copy for the duration of the test run.
     _aws_cfg_mount="${_aws_cfg}"
     if [[ -r "${_aws_cfg}" ]]; then
         _aws_cfg_mount=$(mktemp /tmp/aws-config-staging-XXXXXX)
@@ -242,8 +155,6 @@ setup() {
     fi
     export _aws_cfg_mount
 
-    # Resolve the AWS credentials file; create a world-readable temp copy for
-    # the non-root container user (UID 10001), same as the config file above.
     _aws_creds="${AWS_CREDENTIALS_FILE:-${HOME}/.secrets/aws-credentials}"
     _aws_creds_mount="${_aws_creds}"
     if [[ -r "${_aws_creds}" ]]; then
@@ -251,10 +162,9 @@ setup() {
         cp "${_aws_creds}" "${_aws_creds_mount}"
         chmod 0644 "${_aws_creds_mount}"
     fi
-    export _aws_creds _aws_creds_mount
+    export _aws_cfg _aws_creds _aws_creds_mount
 
-    # Create a shared image archive for Trivy, Grype, and Dive — avoids mounting
-    # the Docker socket inside scanner containers, which hangs on macOS Docker Desktop.
+    # Scan archive (shared by Trivy, Grype, and Dive; avoids Docker socket mount)
     _scan_tar=""
     if [[ "${_SCAN}" == "true" || "${_ADVISE_GRYPE}" == "true" \
             || "${_ADVISE_DIVE}" == "true" ]]; then
@@ -263,629 +173,35 @@ setup() {
     fi
     export _scan_tar
 
-    # Clean up temp files on exit (world-readable credential copies + scan archive).
     # shellcheck disable=SC2064
     trap 'rm -f "${_aws_cfg_mount}" "${_aws_creds_mount}" "${_scan_tar}"' EXIT
-}
 
-# ---------------------------------------------------------------------------
-# Helpers — skip / availability guards
-# ---------------------------------------------------------------------------
-
-# _skip: print a SKIP notice, increment the shared skip counter, and return 0
-# so the test is not counted as a failure.
-_SKIP_COUNT=0
-_skip() { echo "SKIP '${FUNCNAME[1]}': $*"; (( ++_SKIP_COUNT )) || true; }
-
-# _pfsense_available: true when PFSENSE_HOST and a usable credential exist.
-_pfsense_available() {
-    local pw_file="${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}"
-    [[ -n "${PFSENSE_HOST:-}" ]] && \
-        [[ -n "${PFSENSE_IDENTITY_FILE:-}" ]] && \
-        { [[ -n "${PFSENSE_IDENTITY_PASSWORD:-}" ]] || [[ -r "${pw_file}" ]]; }
-}
-
-# _aws_available: true when bucket and credentials are configured.
-_aws_available() {
-    [[ -n "${AWS_S3_BUCKET_NAME:-}" ]] && \
-        { [[ -r "${_aws_cfg_mount:-/nonexistent}" ]] || \
-          [[ -r "${_aws_creds_mount:-/nonexistent}" ]] || \
-          [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; }
-}
-
-# _service_available: true when both pfSense and AWS are available.
-_service_available() {
-    _pfsense_available && _aws_available
-}
-
-# ---------------------------------------------------------------------------
-# Test runner helpers
-# ---------------------------------------------------------------------------
-
-# _append_pfsense_args: append pfSense credential flags to a named array.
-#
-# Handles the common mistake of setting PFSENSE_IDENTITY_PASSWORD to a file
-# path instead of the actual passphrase string.  When the value is a
-# readable path it is treated as PFSENSE_IDENTITY_PASSWORD_FILE and
-# bind-mounted into the container rather than passed inline.
-_append_pfsense_args() {
-    local -n _ref=$1   # nameref to the caller's extra_args array
-    if [[ -n "${PFSENSE_HOST:-}" ]]; then
-        _ref+=(-e "PFSENSE_HOST=${PFSENSE_HOST}")
-        # If PFSENSE_HOST is a hostname (not an IP), resolve it on the host
-        # and inject the mapping into the container via --add-host.  Docker
-        # containers have their own DNS and cannot see the host's /etc/hosts
-        # or mDNS, so hostnames that resolve locally will fail inside the
-        # container without this injection.
-        if ! [[ "${PFSENSE_HOST}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            local _resolved
-            _resolved=$(python3 -c \
-                "import socket; print(socket.gethostbyname('${PFSENSE_HOST}'))" \
-                2>/dev/null) \
-                || _resolved=$(getent hosts "${PFSENSE_HOST}" 2>/dev/null \
-                    | awk '{print $1; exit}') \
-                || true
-            [[ -n "${_resolved}" ]] && \
-                _ref+=(--add-host "${PFSENSE_HOST}:${_resolved}")
-        fi
-    fi
-    [[ -n "${PFSENSE_USER:-}" ]] && \
-        _ref+=(-e "PFSENSE_USER=${PFSENSE_USER}")
-    [[ -n "${PFSENSE_IDENTITY_FILE:-}" ]] && \
-        _ref+=(-e "PFSENSE_IDENTITY_FILE=${PFSENSE_IDENTITY_FILE}" \
-               -v "${PFSENSE_IDENTITY_FILE}:${PFSENSE_IDENTITY_FILE}:ro")
-    if [[ -n "${PFSENSE_IDENTITY_PASSWORD:-}" ]]; then
-        if [[ -r "${PFSENSE_IDENTITY_PASSWORD}" ]]; then
-            # Readable path — bind-mount and use file-based auth.
-            # (Likely set PFSENSE_IDENTITY_PASSWORD to a file path when
-            # PFSENSE_IDENTITY_PASSWORD_FILE was intended.)
-            _ref+=(-e "PFSENSE_IDENTITY_PASSWORD_FILE=${PFSENSE_IDENTITY_PASSWORD}" \
-                   -v "${PFSENSE_IDENTITY_PASSWORD}:${PFSENSE_IDENTITY_PASSWORD}:ro")
-        else
-            _ref+=(-e "PFSENSE_IDENTITY_PASSWORD=${PFSENSE_IDENTITY_PASSWORD}")
-        fi
-    fi
-    [[ -n "${PFSENSE_IDENTITY_PASSWORD_FILE:-}" ]] && \
-        [[ -r "${PFSENSE_IDENTITY_PASSWORD_FILE}" ]] && \
-        _ref+=(-e "PFSENSE_IDENTITY_PASSWORD_FILE=${PFSENSE_IDENTITY_PASSWORD_FILE}" \
-               -v "${PFSENSE_IDENTITY_PASSWORD_FILE}:${PFSENSE_IDENTITY_PASSWORD_FILE}:ro")
-}
-
-# run_backup: docker run wrapper for the backup script.
-# Extra docker flags may be passed as arguments.
-run_backup() {
-    local extra_args=()
-    _append_pfsense_args extra_args
-    [[ -n "${AWS_S3_BUCKET_NAME:-}" ]] && \
-        extra_args+=(-e "AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME}")
-    if [[ -r "${_aws_cfg_mount:-/nonexistent}" ]]; then
-        extra_args+=(-e "AWS_CONFIG_FILE=/run/secrets/aws-config" \
-                     -v "${_aws_cfg_mount}:/run/secrets/aws-config:ro")
-    fi
-    if [[ -r "${_aws_creds_mount:-/nonexistent}" ]]; then
-        extra_args+=(-e "AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws-credentials" \
-                     -v "${_aws_creds_mount}:/run/secrets/aws-credentials:ro")
-    fi
-    [[ -n "${AWS_ACCESS_KEY_ID:-}" ]] && \
-        extra_args+=(-e "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" \
-                     -e "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}" \
-                     -e "AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}")
-    [[ -n "${AWS_DRYRUN:-}" ]] && \
-        extra_args+=(-e "AWS_DRYRUN=${AWS_DRYRUN}")
-    [[ -n "${COMPRESSION:-}" ]] && \
-        extra_args+=(-e "COMPRESSION=${COMPRESSION}")
-    [[ -n "${DEBUG:-}" ]] && \
-        extra_args+=(-e "DEBUG=${DEBUG}")
-    [[ -n "${LOG_LEVEL:-}" ]] && \
-        extra_args+=(-e "LOG_LEVEL=${LOG_LEVEL}")
-    # shellcheck disable=SC2086
-    docker run --rm ${DOCKER_RUN_ARGS:-} "${extra_args[@]}" "$@" \
-        -e "AWS_RETRY_MODE=standard" \
-        -e "AWS_MAX_ATTEMPTS=5" \
-        "${IMAGE}" /usr/local/bin/backup 2>&1
-}
-
-# _aws: run an aws CLI command inside the image, bypassing the backup entrypoint.
-# Used for bucket setup/teardown in tests.  Includes retry env vars for
-# transient S3 failures (throttle errors, 5xx, connection resets).
-_aws() {
-    local aws_mounts=() aws_env=()
-    if [[ -r "${_aws_cfg_mount:-/nonexistent}" ]]; then
-        aws_mounts+=(-v "${_aws_cfg_mount}:/run/secrets/aws-config:ro")
-        aws_env+=(-e "AWS_CONFIG_FILE=/run/secrets/aws-config")
-    fi
-    if [[ -r "${_aws_creds_mount:-/nonexistent}" ]]; then
-        aws_mounts+=(-v "${_aws_creds_mount}:/run/secrets/aws-credentials:ro")
-        aws_env+=(-e "AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws-credentials")
-    fi
-    # shellcheck disable=SC2086
-    docker run --rm --entrypoint /usr/bin/aws \
-        ${DOCKER_RUN_ARGS:-} \
-        "${aws_mounts[@]}" \
-        "${aws_env[@]}" \
-        -e "AWS_RETRY_MODE=standard" \
-        -e "AWS_MAX_ATTEMPTS=5" \
-        "${IMAGE}" "$@"
-}
-
-# _healthcheck_run: run /usr/local/bin/healthcheck inside the container
-# after executing the given setup shell fragment.  Remaining arguments are
-# extra docker flags (-e, -v, etc.).  Returns the docker exit code; all
-# container output is suppressed (we only care about the exit status).
-_healthcheck_run() {
-    local script="$1"; shift
-    docker run --rm --entrypoint /bin/bash \
-        "$@" \
-        "${IMAGE}" -c "${script}" \
-        >/dev/null 2>&1
-}
-
-# ---------------------------------------------------------------------------
-# Tests — image-only (no live systems required)
-# ---------------------------------------------------------------------------
-
-test_staging_image_has_backup() {
-    if docker run --rm --entrypoint /bin/sh \
-           "${IMAGE}" -c 'test -x /usr/local/bin/backup'; then
-        echo "PASS '${FUNCNAME[0]}': /usr/local/bin/backup exists and is executable"
-    else
-        echo "FAIL '${FUNCNAME[0]}': /usr/local/bin/backup missing or not executable"
-        return 1
-    fi
-}
-
-test_staging_image_has_pfsense_backup() {
-    if docker run --rm --entrypoint /bin/sh \
-           "${IMAGE}" -c 'test -x /usr/local/bin/pfsense-backup'; then
-        echo "PASS '${FUNCNAME[0]}': /usr/local/bin/pfsense-backup exists and is executable"
-    else
-        echo "FAIL '${FUNCNAME[0]}': /usr/local/bin/pfsense-backup missing or not executable"
-        return 1
-    fi
-}
-
-test_staging_image_has_startup() {
-    if docker run --rm --entrypoint /bin/sh \
-           "${IMAGE}" -c 'test -x /usr/local/bin/startup'; then
-        echo "PASS '${FUNCNAME[0]}': startup exists and is executable"
-    else
-        echo "FAIL '${FUNCNAME[0]}': startup missing or not executable"
-        return 1
-    fi
-}
-
-test_staging_image_has_healthcheck() {
-    if docker run --rm --entrypoint /bin/sh \
-           "${IMAGE}" -c 'test -x /usr/local/bin/healthcheck'; then
-        echo "PASS '${FUNCNAME[0]}': /usr/local/bin/healthcheck exists and is executable"
-    else
-        echo "FAIL '${FUNCNAME[0]}': /usr/local/bin/healthcheck missing or not executable"
-        return 1
-    fi
-}
-
-test_staging_image_has_sshpass() {
-    if docker run --rm --entrypoint /bin/sh \
-           "${IMAGE}" -c 'command -v sshpass >/dev/null'; then
-        echo "PASS '${FUNCNAME[0]}': sshpass is available in the image"
-    else
-        echo "FAIL '${FUNCNAME[0]}': sshpass not found"
-        return 1
-    fi
-}
-
-test_staging_image_has_ssh() {
-    if docker run --rm --entrypoint /bin/sh \
-           "${IMAGE}" -c 'command -v ssh >/dev/null'; then
-        echo "PASS '${FUNCNAME[0]}': ssh is available in the image"
-    else
-        echo "FAIL '${FUNCNAME[0]}': ssh not found"
-        return 1
-    fi
-}
-
-test_staging_image_has_aws() {
-    if docker run --rm --entrypoint /bin/sh \
-           "${IMAGE}" -c 'command -v aws >/dev/null'; then
-        echo "PASS '${FUNCNAME[0]}': aws cli is available in the image"
-    else
-        echo "FAIL '${FUNCNAME[0]}': aws cli not found"
-        return 1
-    fi
-}
-
-test_staging_missing_bucket_exits_nonzero() {
-    local result=0
-    docker run --rm "${IMAGE}" /usr/local/bin/backup \
-        >/dev/null 2>&1 && result=0 || result=$?
-    if [[ ${result} -ne 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': exits non-zero when AWS_S3_BUCKET_NAME is unset"
-    else
-        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero"
-        return 1
-    fi
-}
-
-test_staging_missing_host_exits_nonzero() {
-    local result=0
-    docker run --rm \
-        -e AWS_S3_BUCKET_NAME=test-bucket \
-        "${IMAGE}" /usr/local/bin/backup \
-        >/dev/null 2>&1 && result=0 || result=$?
-    if [[ ${result} -ne 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': exits non-zero when PFSENSE_HOST is unset"
-    else
-        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero"
-        return 1
-    fi
-}
-
-test_staging_missing_identity_file_exits_nonzero() {
-    local result=0
-    docker run --rm \
-        -e AWS_S3_BUCKET_NAME=test-bucket \
-        -e PFSENSE_HOST=192.0.2.1 \
-        -e PFSENSE_IDENTITY_FILE=/nonexistent/pfsense.key \
-        -e PFSENSE_IDENTITY_PASSWORD=testpassword \
-        "${IMAGE}" /usr/local/bin/backup \
-        >/dev/null 2>&1 && result=0 || result=$?
-    if [[ ${result} -ne 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': exits non-zero when identity file is missing"
-    else
-        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero"
-        return 1
-    fi
-}
-
-test_staging_missing_password_exits_nonzero() {
-    local result=0
-    docker run --rm \
-        -e AWS_S3_BUCKET_NAME=test-bucket \
-        -e PFSENSE_HOST=192.0.2.1 \
-        -e PFSENSE_IDENTITY_FILE=/run/secrets/pfsense-identity \
-        -e PFSENSE_IDENTITY_PASSWORD= \
-        -e PFSENSE_IDENTITY_PASSWORD_FILE=/nonexistent/password \
-        "${IMAGE}" /usr/local/bin/backup \
-        >/dev/null 2>&1 && result=0 || result=$?
-    if [[ ${result} -ne 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': exits non-zero when no credential is supplied"
-    else
-        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero"
-        return 1
+    # Call repo-specific hook for docker-run helper definitions
+    if declare -F setup_hooks > /dev/null 2>&1; then
+        setup_hooks
     fi
 }
 
 # ---------------------------------------------------------------------------
-# Tests — healthcheck (image-only)
+# Scan / advise tests
 # ---------------------------------------------------------------------------
-
-# Shell fragments executed inside the container via bash -c.
-# Single-quoted so that $(id -un) and the inner double-quotes are NOT
-# expanded by the host shell; they are interpreted by bash inside the
-# container.
-# shellcheck disable=SC2016,SC2089  # intentional: fragments run via bash -c inside container
-_HC_CRONTAB='printf "SHELL=/bin/sh\n* * * * * /usr/local/bin/pfsense-backup\n" > /var/spool/cron/crontabs/$(id -un)'
-# shellcheck disable=SC2016,SC2089
-_HC_SUPERCRONIC='touch /var/spool/cron/crontabs/$(id -un) && supercronic /var/spool/cron/crontabs/$(id -un) >/dev/null 2>&1 & sleep 0.5'
-
-test_staging_healthcheck_healthy() {
-    # All conditions met: crontab configured, supercronic running, fresh backup.
-    local result=0
-    # shellcheck disable=SC2090
-    _healthcheck_run \
-        "${_HC_CRONTAB} && ${_HC_SUPERCRONIC} && touch /tmp/hc-success && /usr/local/bin/healthcheck" \
-        -e HEALTHCHECK_SUCCESS_FILE=/tmp/hc-success \
-        -e HEALTHCHECK_MAX_AGE_SECONDS=300 \
-        -e HEALTHCHECK_STARTUP_GRACE_SECONDS=300 \
-        && result=0 || result=$?
-    if [[ ${result} -eq 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': healthcheck exits 0 when fully healthy"
-    else
-        echo "FAIL '${FUNCNAME[0]}': expected exit 0, got ${result}"
-        return 1
-    fi
-}
-
-test_staging_healthcheck_unhealthy_no_crontab() {
-    # Crontab absent — healthcheck must exit non-zero.
-    local result=0
-    # shellcheck disable=SC2090
-    _healthcheck_run \
-        "${_HC_SUPERCRONIC} && touch /tmp/hc-success && /usr/local/bin/healthcheck" \
-        -e HEALTHCHECK_SUCCESS_FILE=/tmp/hc-success \
-        -e HEALTHCHECK_MAX_AGE_SECONDS=300 \
-        && result=0 || result=$?
-    if [[ ${result} -ne 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': healthcheck exits non-zero when crontab is missing"
-    else
-        echo "FAIL '${FUNCNAME[0]}': expected non-zero exit, got 0"
-        return 1
-    fi
-}
-
-test_staging_healthcheck_unhealthy_no_supercronic() {
-    # Crontab present but supercronic not running — healthcheck must exit non-zero.
-    local result=0
-    # shellcheck disable=SC2090
-    _healthcheck_run \
-        "${_HC_CRONTAB} && touch /tmp/hc-success && /usr/local/bin/healthcheck" \
-        -e HEALTHCHECK_SUCCESS_FILE=/tmp/hc-success \
-        -e HEALTHCHECK_MAX_AGE_SECONDS=300 \
-        && result=0 || result=$?
-    if [[ ${result} -ne 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': healthcheck exits non-zero when supercronic is not running"
-    else
-        echo "FAIL '${FUNCNAME[0]}': expected non-zero exit, got 0"
-        return 1
-    fi
-}
-
-test_staging_healthcheck_healthy_grace_period() {
-    # No backup yet, but within the startup grace window — healthcheck must exit 0.
-    local result=0
-    # shellcheck disable=SC2090
-    _healthcheck_run \
-        "${_HC_CRONTAB} && ${_HC_SUPERCRONIC} && touch /tmp/hc-started && /usr/local/bin/healthcheck" \
-        -e HEALTHCHECK_SUCCESS_FILE=/tmp/hc-success-absent \
-        -e HEALTHCHECK_STARTUP_FILE=/tmp/hc-started \
-        -e HEALTHCHECK_MAX_AGE_SECONDS=300 \
-        -e HEALTHCHECK_STARTUP_GRACE_SECONDS=300 \
-        && result=0 || result=$?
-    if [[ ${result} -eq 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': healthcheck exits 0 within startup grace period"
-    else
-        echo "FAIL '${FUNCNAME[0]}': expected exit 0, got ${result}"
-        return 1
-    fi
-}
-
-test_staging_healthcheck_unhealthy_stale_backup() {
-    # Backup marker too old (MAX_AGE=-1) and grace expired — healthcheck must exit non-zero.
-    local result=0
-    # shellcheck disable=SC2090
-    _healthcheck_run \
-        "${_HC_CRONTAB} && ${_HC_SUPERCRONIC} && touch /tmp/hc-old-success && /usr/local/bin/healthcheck" \
-        -e HEALTHCHECK_SUCCESS_FILE=/tmp/hc-old-success \
-        -e HEALTHCHECK_MAX_AGE_SECONDS=-1 \
-        -e HEALTHCHECK_STARTUP_GRACE_SECONDS=-1 \
-        && result=0 || result=$?
-    if [[ ${result} -ne 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': healthcheck exits non-zero when backup marker is too old"
-    else
-        echo "FAIL '${FUNCNAME[0]}': expected non-zero exit, got 0"
-        return 1
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# Tests — pfSense-dependent (require a live pfSense host)
-# ---------------------------------------------------------------------------
-
-test_staging_backup_downloads_config() {
-    _pfsense_available || { _skip "PFSENSE_HOST / identity not configured"; return 0; }
-    local output result=0
-    output=$(run_backup \
-        -e DRYRUN=true \
-        2>&1) && result=0 || result=$?
-    if [[ ${result} -eq 0 ]] && \
-       [[ "${output}" == *'finish backup'* ]]; then
-        echo "PASS '${FUNCNAME[0]}': backup completed against live pfSense"
-    else
-        echo "FAIL '${FUNCNAME[0]}': expected 'finish backup' in output"
-        printf '%s\n' "${output}" | tail -20 >&2
-        return 1
-    fi
-}
-
-test_staging_backup_xml_has_expected_fields() {
-    _pfsense_available || { _skip "PFSENSE_HOST / identity not configured"; return 0; }
-    local output result=0
-    output=$(run_backup \
-        -e DRYRUN=true \
-        2>&1) && result=0 || result=$?
-    # The backup filename embeds hostname and version — their presence in the
-    # log confirms that XML field extraction succeeded.
-    if [[ ${result} -eq 0 ]] && \
-       [[ "${output}" == *'-pfsense-v'* ]] && \
-       [[ "${output}" == *'-config-backup.xml'* ]]; then
-        echo "PASS '${FUNCNAME[0]}': backup filename contains hostname and version fields"
-    else
-        echo "FAIL '${FUNCNAME[0]}': expected hostname/version in backup filename"
-        printf '%s\n' "${output}" | tail -20 >&2
-        return 1
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# Tests — full pipeline (pfSense + AWS)
-# ---------------------------------------------------------------------------
-
-# test_staging_backup_direct: run backup end-to-end with real pfSense + AWS.
-# Provides progress feedback every 10 s because the SSH + upload may take
-# 30–90 s on a slow connection.
-test_staging_backup_direct() {
-    _service_available || { _skip "pfSense or AWS not configured"; return 0; }
-
-    local tmpout
-    tmpout=$(mktemp)
-    # shellcheck disable=SC2064
-    trap "rm -f '${tmpout}'" RETURN
-
-    run_backup >"${tmpout}" 2>&1 &
-    local pid=$!
-
-    local elapsed=0 interval=10 timeout=300
-    while kill -0 "${pid}" 2>/dev/null; do
-        sleep "${interval}"
-        elapsed=$(( elapsed + interval ))
-        printf '[%ds] backup in progress...\n' "${elapsed}"
-        if (( elapsed >= timeout )); then
-            kill "${pid}" 2>/dev/null || true
-            echo "FAIL '${FUNCNAME[0]}': timed out after ${timeout}s"
-            cat "${tmpout}" >&2
-            return 1
-        fi
-    done
-    local result
-    wait "${pid}" && result=0 || result=$?
-
-    if [[ ${result} -eq 0 ]] && \
-       grep -q 'finish backup' "${tmpout}"; then
-        echo "PASS '${FUNCNAME[0]}': end-to-end backup completed"
-    else
-        echo "FAIL '${FUNCNAME[0]}': backup exited ${result} or did not finish cleanly"
-        cat "${tmpout}" >&2
-        return 1
-    fi
-}
-
-# test_staging_cron_startup: verify the scheduler container starts, writes its
-# crontab, and stays running — no pfSense host or AWS credentials required.
-# Catches Dockerfile permission regressions (e.g. /var/spool/cron/crontabs
-# root-owned via Alpine symlink) that CLI-mode tests cannot exercise.
-test_staging_cron_startup() {
-    local container_id
-    # Use @daily so the job never fires during the test window.
-    # shellcheck disable=SC2086
-    container_id=$(docker run --detach \
-        -e "BUCKET=test.fake-bucket-for-startup-test" \
-        -e "CRON_EXPRESSION=@daily" \
-        ${DOCKER_RUN_ARGS:-} \
-        "${IMAGE}")
-    printf '  container %s started; waiting for scheduler init...\n' \
-        "${container_id:0:12}" >&2
-
-    sleep 3
-
-    local running
-    running=$(docker inspect --format '{{.State.Running}}' "${container_id}" \
-        2>/dev/null || echo "false")
-
-    local crontab_ok=false
-    if [[ "${running}" == "true" ]]; then
-        docker exec "${container_id}" \
-            test -f /var/spool/cron/crontabs/pfsense-backup \
-            > /dev/null 2>&1 && crontab_ok=true
-    fi
-
-    docker stop "${container_id}" > /dev/null 2>&1
-    docker rm   "${container_id}" > /dev/null 2>&1
-
-    if [[ "${running}" != "true" ]]; then
-        echo "FAIL '${FUNCNAME[0]}': container exited within 3s of startup"
-        return 1
-    fi
-    if ! "${crontab_ok}"; then
-        echo "FAIL '${FUNCNAME[0]}': crontab file not found" \
-             "(crontabs directory likely root-owned)"
-        return 1
-    fi
-    echo "PASS '${FUNCNAME[0]}': scheduler running and crontab written"
-}
-
-# test_staging_cron_fires: start the container in service mode with a
-# one-minute schedule, wait for the cron job to fire and complete, then
-# verify the success marker is created.  Provides log-tail feedback every
-# 10 s because the full cycle takes at least 60 s.
-test_staging_cron_fires() {
-    _service_available || { _skip "pfSense or AWS not configured"; return 0; }
-
-    local container
-    local extra_env=()
-    _append_pfsense_args extra_env
-    [[ -n "${AWS_S3_BUCKET_NAME:-}" ]] && \
-        extra_env+=(-e "AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME}")
-    if [[ -r "${_aws_cfg_mount:-/nonexistent}" ]]; then
-        extra_env+=(-e "AWS_CONFIG_FILE=/run/secrets/aws-config" \
-                    -v "${_aws_cfg_mount}:/run/secrets/aws-config:ro")
-    fi
-    if [[ -r "${_aws_creds_mount:-/nonexistent}" ]]; then
-        extra_env+=(-e "AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws-credentials" \
-                    -v "${_aws_creds_mount}:/run/secrets/aws-credentials:ro")
-    fi
-    [[ -n "${AWS_ACCESS_KEY_ID:-}" ]] && \
-        extra_env+=(-e "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" \
-                    -e "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}" \
-                    -e "AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}")
-    [[ -n "${AWS_DRYRUN:-}" ]] && \
-        extra_env+=(-e "AWS_DRYRUN=${AWS_DRYRUN}")
-
-    # shellcheck disable=SC2086
-    container=$(docker run --detach \
-        -e "CRON_EXPRESSION=* * * * *" \
-        -e "AWS_RETRY_MODE=standard" \
-        -e "AWS_MAX_ATTEMPTS=5" \
-        ${DOCKER_RUN_ARGS:-} \
-        "${extra_env[@]}" \
-        "${IMAGE}")
-    # shellcheck disable=SC2064
-    trap "docker rm --force '${container}' >/dev/null 2>&1 || true" RETURN
-
-    local elapsed=0 interval=10 timeout=240
-    while true; do
-        sleep "${interval}"
-        elapsed=$(( elapsed + interval ))
-        local last_line
-        last_line=$(docker logs "${container}" 2>&1 | tail -1)
-        printf '[%ds] last log: %s\n' "${elapsed}" "${last_line}"
-
-        if docker logs "${container}" 2>&1 | grep -q 'finish backup'; then
-            echo "PASS '${FUNCNAME[0]}': cron job fired and backup completed"
-            return 0
-        fi
-
-        if (( elapsed >= timeout )); then
-            echo "FAIL '${FUNCNAME[0]}': timed out after ${timeout}s waiting for cron backup"
-            docker logs "${container}" 2>&1 | tail -30 >&2
-            return 1
-        fi
-    done
-}
-
-# ---------------------------------------------------------------------------
-# Tests — scan / advise
-# These inspect the image for known vulnerabilities or coverage.  All are
-# pfSense/AWS-independent and require only Docker and network access to pull
-# tool images.
-# ---------------------------------------------------------------------------
-
-# test_staging_trivy_scan: Trivy HIGH/CRITICAL image scan.
-# Mirrors build Stage 4.  Gating: fails when unfixed HIGH/CRITICAL CVEs are
-# found.  Skip with --no-scan for fast iteration during development.
 test_staging_trivy_scan() {
     [[ "${_SCAN}" == "true" ]] || {
-        _skip "--no-scan: Trivy scan skipped"
-        return 0
-    }
+        _skip "--no-scan: Trivy scan skipped"; return 0; }
     printf '  running Trivy scan on %s...\n' "${IMAGE}" >&2
-
-    local _trivy_db_flags=()
-    if [[ "${_CACHE_SKIP_UPDATE_TRIVY}" == "true" ]]; then
-        echo "    Trivy DB update skipped for this run (--cache skip-update=trivy)" >&2
-        _trivy_db_flags+=(--skip-db-update --skip-java-db-update)
-    fi
-    local _project_dir
-    _project_dir=$(dirname "$(readlink -f "$0")")/..
-    local _trivy_vol_flags=()
-    local _trivy_ignore_flags=()
-    if [[ -f "${_project_dir}/.trivyignore" ]]; then
-        _trivy_vol_flags+=(-v "${_project_dir}/.trivyignore:/.trivyignore:ro")
-        _trivy_ignore_flags+=(--ignorefile /.trivyignore)
-    fi
+    local _extra=()
+    [[ "${_CACHE_SKIP_UPDATE_TRIVY}" == "true" ]] && {
+        echo "    Trivy DB update skipped (--cache skip-update=trivy)" >&2
+        _extra+=(--skip-db-update --skip-java-db-update); }
     local result=0
     docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
         -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
-        "${_trivy_vol_flags[@]}" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
-            --quiet \
-            --no-progress \
-            --exit-code 1 \
-            --ignore-unfixed \
-            --severity HIGH,CRITICAL \
+            --quiet --no-progress --exit-code 1 \
+            --ignore-unfixed --severity HIGH,CRITICAL \
             --timeout 5m \
-            "${_trivy_ignore_flags[@]}" \
-            "${_trivy_db_flags[@]}" \
+            "${_extra[@]}" \
             --input /scan.tar 2>&1 || result=$?
     if [[ ${result} -eq 0 ]]; then
         echo "PASS '${FUNCNAME[0]}': no unfixed HIGH/CRITICAL CVEs found"
@@ -895,68 +211,46 @@ test_staging_trivy_scan() {
     fi
 }
 
-# test_staging_grype_advise: Grype full-severity advisory scan.
-# Mirrors build Stage 5a.  Non-gating: findings are printed but never cause a
-# test failure.  Skipped when --no-advise is set, or when --no-scan is given
-# without an explicit --advise.
 test_staging_grype_advise() {
     [[ "${_ADVISE_GRYPE}" == "true" ]] || {
-        _skip "--no-advise grype: Grype advisory scan skipped"
-        return 0
-    }
-
+        _skip "--no-advise grype: Grype advisory scan skipped"; return 0; }
     printf '  running Grype advisory scan on %s...\n' "${IMAGE}" >&2
-    local _grype_extra_env=()
-    if [[ "${_CACHE_SKIP_UPDATE_GRYPE}" == "true" ]]; then
-        echo "    Grype DB update skipped for this run (--cache skip-update=grype)" >&2
-        _grype_extra_env+=(-e GRYPE_DB_AUTO_UPDATE=false)
-    fi
+    local _extra=()
+    [[ "${_CACHE_SKIP_UPDATE_GRYPE}" == "true" ]] && {
+        echo "    Grype DB update skipped (--cache skip-update=grype)" >&2
+        _extra+=(-e GRYPE_DB_AUTO_UPDATE=false); }
     docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
         -v "${GRYPE_CACHE_VOLUME}:/root/.cache/grype" \
-        "${_grype_extra_env[@]}" \
+        "${_extra[@]}" \
         "${GRYPE_IMAGE}:${GRYPE_TAG}" \
             docker-archive:/scan.tar 2>&1 || true
     echo "PASS '${FUNCNAME[0]}': Grype advisory scan complete (advisory only)"
 }
 
-# test_staging_scout_advise: Docker Scout CVE advisory scan.
-# Mirrors build Stage 5b.  Non-gating.
 test_staging_scout_advise() {
     [[ "${_ADVISE_SCOUT}" == "true" ]] || {
-        _skip "--no-advise scout: Docker Scout advisory scan skipped"
-        return 0
-    }
+        _skip "--no-advise scout: Docker Scout advisory scan skipped"; return 0; }
     printf '  running Docker Scout advisory scan on %s...\n' "${IMAGE}" >&2
     docker scout cves "${IMAGE}" 2>&1 || true
     echo "PASS '${FUNCNAME[0]}': Docker Scout advisory scan complete (advisory only)"
 }
 
-# test_staging_dive_advise: Dive image layer analysis.
-# Mirrors build Stage 5c.  Non-gating.
 test_staging_dive_advise() {
     [[ "${_ADVISE_DIVE}" == "true" ]] || {
-        _skip "--no-advise dive: Dive layer analysis skipped"
-        return 0
-    }
+        _skip "--no-advise dive: Dive layer analysis skipped"; return 0; }
     printf '  running Dive layer analysis on %s...\n' "${IMAGE}" >&2
     docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
         "${DIVE_IMAGE}:${DIVE_TAG}" \
-            --source docker-archive \
-            --ci \
+            --source docker-archive --ci \
             /scan.tar 2>&1 || true
     echo "PASS '${FUNCNAME[0]}': Dive layer analysis complete (advisory only)"
 }
 
-# test_staging_coverage_advise: kcov bash line-coverage report.
-# Mirrors build Stage 5d.  Non-gating: results are printed but never cause a
-# test failure.  Skipped when --no-coverage or --no-advise is set.
 test_staging_coverage_advise() {
     [[ "${_ADVISE_COVERAGE}" == "true" ]] || {
-        _skip "--no-coverage: coverage analysis skipped"
-        return 0
-    }
+        _skip "--no-coverage: coverage analysis skipped"; return 0; }
     local script_dir
     script_dir=$(dirname "$(readlink -f "$0")")
     printf '  running kcov coverage analysis...\n' >&2
@@ -979,322 +273,409 @@ test_staging_coverage_advise() {
             test/10-pfsense-backup-cli-flags.bats \
             test/11-scheduler-mode.bats \
             test/12-multi-bucket.bats \
+            test/13-source-coverage.bats
         >&2 || true
     echo "PASS '${FUNCNAME[0]}': coverage analysis complete (advisory only)"
 }
 
 # ---------------------------------------------------------------------------
+# Shared staging helpers
+# ---------------------------------------------------------------------------
+# _append_aws_mounts <array_ref>: append -v/-e flags for AWS config and
+# credentials mounts to the named array.  _aws_cfg_mount and _aws_creds_mount
+# are set and exported by setup() before setup_hooks() runs.
+_append_aws_mounts() {
+    local -n _amr=$1
+    if [[ -r "${_aws_cfg_mount:-/nonexistent}" ]]; then
+        _amr+=(-v "${_aws_cfg_mount}:/run/secrets/aws-config:ro"
+               -e "AWS_CONFIG_FILE=/run/secrets/aws-config")
+    fi
+    if [[ -r "${_aws_creds_mount:-/nonexistent}" ]]; then
+        _amr+=(-v "${_aws_creds_mount}:/run/secrets/aws-credentials:ro"
+               -e "AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws-credentials")
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Repo-specific helpers and test implementations (staging-hooks.sh)
+# ---------------------------------------------------------------------------
+_hooks_file="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/staging-hooks.sh"
+if [[ ! -f "${_hooks_file}" ]]; then
+    echo "ERROR: staging-hooks.sh not found: ${_hooks_file}" >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+source "${_hooks_file}"
+
+# ---------------------------------------------------------------------------
+# Test catalog
+# ---------------------------------------------------------------------------
+_ALL_TESTS=()
+declare -A _TEST_KIND=()
+declare -A _TEST_DESTRUCTIVE=()
+declare -A _TEST_REQUIRES=()
+_ALL_TESTS+=(test_staging_image_has_backup)
+_TEST_KIND[test_staging_image_has_backup]=image
+_TEST_DESTRUCTIVE[test_staging_image_has_backup]=false
+_TEST_REQUIRES[test_staging_image_has_backup]=''
+_ALL_TESTS+=(test_staging_image_has_pfsense_backup)
+_TEST_KIND[test_staging_image_has_pfsense_backup]=image
+_TEST_DESTRUCTIVE[test_staging_image_has_pfsense_backup]=false
+_TEST_REQUIRES[test_staging_image_has_pfsense_backup]=''
+_ALL_TESTS+=(test_staging_image_has_startup)
+_TEST_KIND[test_staging_image_has_startup]=image
+_TEST_DESTRUCTIVE[test_staging_image_has_startup]=false
+_TEST_REQUIRES[test_staging_image_has_startup]=''
+_ALL_TESTS+=(test_staging_image_has_healthcheck)
+_TEST_KIND[test_staging_image_has_healthcheck]=image
+_TEST_DESTRUCTIVE[test_staging_image_has_healthcheck]=false
+_TEST_REQUIRES[test_staging_image_has_healthcheck]=''
+_ALL_TESTS+=(test_staging_image_has_sshpass)
+_TEST_KIND[test_staging_image_has_sshpass]=image
+_TEST_DESTRUCTIVE[test_staging_image_has_sshpass]=false
+_TEST_REQUIRES[test_staging_image_has_sshpass]=''
+_ALL_TESTS+=(test_staging_image_has_ssh)
+_TEST_KIND[test_staging_image_has_ssh]=image
+_TEST_DESTRUCTIVE[test_staging_image_has_ssh]=false
+_TEST_REQUIRES[test_staging_image_has_ssh]=''
+_ALL_TESTS+=(test_staging_image_has_aws)
+_TEST_KIND[test_staging_image_has_aws]=image
+_TEST_DESTRUCTIVE[test_staging_image_has_aws]=false
+_TEST_REQUIRES[test_staging_image_has_aws]=''
+_ALL_TESTS+=(test_staging_missing_bucket_exits_nonzero)
+_TEST_KIND[test_staging_missing_bucket_exits_nonzero]=cli
+_TEST_DESTRUCTIVE[test_staging_missing_bucket_exits_nonzero]=false
+_TEST_REQUIRES[test_staging_missing_bucket_exits_nonzero]=''
+_ALL_TESTS+=(test_staging_missing_host_exits_nonzero)
+_TEST_KIND[test_staging_missing_host_exits_nonzero]=cli
+_TEST_DESTRUCTIVE[test_staging_missing_host_exits_nonzero]=false
+_TEST_REQUIRES[test_staging_missing_host_exits_nonzero]=''
+_ALL_TESTS+=(test_staging_missing_identity_file_exits_nonzero)
+_TEST_KIND[test_staging_missing_identity_file_exits_nonzero]=cli
+_TEST_DESTRUCTIVE[test_staging_missing_identity_file_exits_nonzero]=false
+_TEST_REQUIRES[test_staging_missing_identity_file_exits_nonzero]=''
+_ALL_TESTS+=(test_staging_missing_password_exits_nonzero)
+_TEST_KIND[test_staging_missing_password_exits_nonzero]=cli
+_TEST_DESTRUCTIVE[test_staging_missing_password_exits_nonzero]=false
+_TEST_REQUIRES[test_staging_missing_password_exits_nonzero]=''
+_ALL_TESTS+=(test_staging_healthcheck_healthy)
+_TEST_KIND[test_staging_healthcheck_healthy]=healthcheck
+_TEST_DESTRUCTIVE[test_staging_healthcheck_healthy]=false
+_TEST_REQUIRES[test_staging_healthcheck_healthy]=''
+_ALL_TESTS+=(test_staging_healthcheck_unhealthy_no_crontab)
+_TEST_KIND[test_staging_healthcheck_unhealthy_no_crontab]=healthcheck
+_TEST_DESTRUCTIVE[test_staging_healthcheck_unhealthy_no_crontab]=false
+_TEST_REQUIRES[test_staging_healthcheck_unhealthy_no_crontab]=''
+_ALL_TESTS+=(test_staging_healthcheck_unhealthy_no_supercronic)
+_TEST_KIND[test_staging_healthcheck_unhealthy_no_supercronic]=healthcheck
+_TEST_DESTRUCTIVE[test_staging_healthcheck_unhealthy_no_supercronic]=false
+_TEST_REQUIRES[test_staging_healthcheck_unhealthy_no_supercronic]=''
+_ALL_TESTS+=(test_staging_healthcheck_healthy_grace_period)
+_TEST_KIND[test_staging_healthcheck_healthy_grace_period]=healthcheck
+_TEST_DESTRUCTIVE[test_staging_healthcheck_healthy_grace_period]=false
+_TEST_REQUIRES[test_staging_healthcheck_healthy_grace_period]=''
+_ALL_TESTS+=(test_staging_healthcheck_unhealthy_stale_backup)
+_TEST_KIND[test_staging_healthcheck_unhealthy_stale_backup]=healthcheck
+_TEST_DESTRUCTIVE[test_staging_healthcheck_unhealthy_stale_backup]=false
+_TEST_REQUIRES[test_staging_healthcheck_unhealthy_stale_backup]=''
+_ALL_TESTS+=(test_staging_trivy_scan)
+_TEST_KIND[test_staging_trivy_scan]=scan
+_TEST_DESTRUCTIVE[test_staging_trivy_scan]=false
+_TEST_REQUIRES[test_staging_trivy_scan]=''
+_ALL_TESTS+=(test_staging_coverage_advise)
+_TEST_KIND[test_staging_coverage_advise]=advise
+_TEST_DESTRUCTIVE[test_staging_coverage_advise]=false
+_TEST_REQUIRES[test_staging_coverage_advise]=''
+_ALL_TESTS+=(test_staging_dive_advise)
+_TEST_KIND[test_staging_dive_advise]=advise
+_TEST_DESTRUCTIVE[test_staging_dive_advise]=false
+_TEST_REQUIRES[test_staging_dive_advise]=''
+_ALL_TESTS+=(test_staging_grype_advise)
+_TEST_KIND[test_staging_grype_advise]=advise
+_TEST_DESTRUCTIVE[test_staging_grype_advise]=false
+_TEST_REQUIRES[test_staging_grype_advise]=''
+_ALL_TESTS+=(test_staging_scout_advise)
+_TEST_KIND[test_staging_scout_advise]=advise
+_TEST_DESTRUCTIVE[test_staging_scout_advise]=false
+_TEST_REQUIRES[test_staging_scout_advise]=''
+_ALL_TESTS+=(test_staging_backup_downloads_config)
+_TEST_KIND[test_staging_backup_downloads_config]=pfsense
+_TEST_DESTRUCTIVE[test_staging_backup_downloads_config]=false
+_TEST_REQUIRES[test_staging_backup_downloads_config]='host'
+_ALL_TESTS+=(test_staging_backup_xml_has_expected_fields)
+_TEST_KIND[test_staging_backup_xml_has_expected_fields]=pfsense
+_TEST_DESTRUCTIVE[test_staging_backup_xml_has_expected_fields]=false
+_TEST_REQUIRES[test_staging_backup_xml_has_expected_fields]='host'
+_ALL_TESTS+=(test_staging_backup_direct)
+_TEST_KIND[test_staging_backup_direct]=aws
+_TEST_DESTRUCTIVE[test_staging_backup_direct]=false
+_TEST_REQUIRES[test_staging_backup_direct]='aws,host'
+_ALL_TESTS+=(test_staging_cron_startup)
+_TEST_KIND[test_staging_cron_startup]=cron
+_TEST_DESTRUCTIVE[test_staging_cron_startup]=false
+_TEST_REQUIRES[test_staging_cron_startup]=''
+_ALL_TESTS+=(test_staging_cron_fires)
+_TEST_KIND[test_staging_cron_fires]=cron
+_TEST_DESTRUCTIVE[test_staging_cron_fires]=false
+_TEST_REQUIRES[test_staging_cron_fires]='aws,host'
+
+# ---------------------------------------------------------------------------
 # Test runner
 # ---------------------------------------------------------------------------
-
+# shellcheck disable=SC2034
 run_tests() {
-    local all_tests=(
-        test_staging_image_has_backup
-        test_staging_image_has_pfsense_backup
-        test_staging_image_has_startup
-        test_staging_image_has_healthcheck
-        test_staging_image_has_sshpass
-        test_staging_image_has_ssh
-        test_staging_image_has_aws
-        test_staging_missing_bucket_exits_nonzero
-        test_staging_missing_host_exits_nonzero
-        test_staging_missing_identity_file_exits_nonzero
-        test_staging_missing_password_exits_nonzero
-        test_staging_healthcheck_healthy
-        test_staging_healthcheck_unhealthy_no_crontab
-        test_staging_healthcheck_unhealthy_no_supercronic
-        test_staging_healthcheck_healthy_grace_period
-        test_staging_healthcheck_unhealthy_stale_backup
-        test_staging_cron_startup
-        test_staging_backup_downloads_config
-        test_staging_backup_xml_has_expected_fields
-        test_staging_backup_direct
-        test_staging_cron_fires
-        test_staging_trivy_scan
-        test_staging_grype_advise
-        test_staging_scout_advise
-        test_staging_dive_advise
-        test_staging_coverage_advise
-    )
+    local -a tests=()
+    local t t_kind t_destr t_req unmet
 
-    # Apply --test filter.
-    local tests=()
     if [[ -n "${_ONLY_TEST}" ]]; then
-        local valid=false t
-        for t in "${all_tests[@]}"; do
+        local valid=false
+        for t in "${_ALL_TESTS[@]}"; do
             [[ "${t}" == "${_ONLY_TEST}" ]] && valid=true && break
         done
         if ! "${valid}"; then
             echo "ERROR: unknown test '${_ONLY_TEST}'" >&2
             printf '       Available tests:\n' >&2
-            printf '         %s\n' "${all_tests[@]}" >&2
+            printf '         %s\n' "${_ALL_TESTS[@]}" >&2
             return 1
         fi
         tests=("${_ONLY_TEST}")
     else
-        tests=("${all_tests[@]}")
+        for t in "${_ALL_TESTS[@]}"; do
+            t_destr="${_TEST_DESTRUCTIVE[${t}]:-false}"
+            [[ "${t_destr}" == "true" && "${_SKIP_E2E}" == "true" ]] && continue
+            tests+=("${t}")
+        done
     fi
 
     setup || { echo "ERROR: setup failed"; return 1; }
 
-    if [[ "${_CACHE_RESET_TRIVY}" == "true" ]]; then
+    [[ "${_CACHE_RESET_TRIVY}" == "true" ]] && {
         echo "==> Cache: reset Trivy DB" >&2
-        _reset_cache_db "${TRIVY_CACHE_VOLUME}"
-    fi
-    if [[ "${_CACHE_RESET_GRYPE}" == "true" ]]; then
+        _reset_cache_db "${TRIVY_CACHE_VOLUME}"; }
+    [[ "${_CACHE_RESET_GRYPE}" == "true" ]] && {
         echo "==> Cache: reset Grype DB" >&2
-        _reset_cache_db "${GRYPE_CACHE_VOLUME}"
-    fi
-
-    echo "Running staging tests for pfsense-backup..."
-    echo "============================================="
-    echo "Image:   ${IMAGE}"
-    if _pfsense_available; then
-        echo "pfSense: ${PFSENSE_HOST}"
-    else
-        echo "pfSense: not configured — pfSense-dependent tests will be skipped"
-    fi
-    if _aws_available; then
-        echo "Bucket:  ${AWS_S3_BUCKET_NAME}"
-        echo "Dryrun:  ${AWS_DRYRUN:-auto}"
-    else
-        echo "AWS:     not configured — AWS-dependent tests will be skipped"
-    fi
-    echo "Scan:    ${_SCAN} (Trivy HIGH/CRITICAL)"
-    echo "Advise:  coverage=${_ADVISE_COVERAGE} dive=${_ADVISE_DIVE}" \
-         "grype=${_ADVISE_GRYPE} scout=${_ADVISE_SCOUT}"
-    [[ -n "${_ONLY_TEST}" ]] && echo "Filter:  --test ${_ONLY_TEST}"
-    echo "============================================="
+        _reset_cache_db "${GRYPE_CACHE_VOLUME}"; }
 
     _SKIP_COUNT=0
     local passed=0 failed=0
     for t in "${tests[@]}"; do
+        t_kind="${_TEST_KIND[${t}]:-cli}"
+        t_destr="${_TEST_DESTRUCTIVE[${t}]:-false}"
+        t_req="${_TEST_REQUIRES[${t}]:-}"
+
+        unmet=false
+        if [[ -n "${t_req}" ]]; then
+            local _reqs req
+            IFS=',' read -ra _reqs <<< "${t_req}"
+            for req in "${_reqs[@]}"; do
+                if ! _meets_requirement "${req}"; then
+                    _skip "${t} (requirement '${req}' not met)"
+                    unmet=true; break
+                fi
+            done
+        fi
+        "${unmet}" && continue
+
+        if ! declare -F "${t}" > /dev/null 2>&1; then
+            echo "ERROR: test function '${t}' not defined" \
+                 "(expected in test/staging-hooks.sh)" >&2
+            (( ++failed )) || true
+            continue
+        fi
+
         if "${t}"; then
             (( ++passed )) || true
         else
+            echo "FAIL '${t}'" >&2
             (( ++failed )) || true
         fi
     done
-    # Subtract skips from passed: skipped tests exit 0 but are not passes.
-    passed=$(( passed - _SKIP_COUNT ))
 
-    local total=$(( ${#tests[@]} ))
-    echo "============================================="
+    passed=$(( passed - _SKIP_COUNT ))
+    (( passed < 0 )) && passed=0
+
+    local total="${#tests[@]}"
+    echo "================================================="
     echo "Results: ${passed} passed, ${failed} failed," \
          "${_SKIP_COUNT} skipped (${total} run)"
     return "${failed}"
 }
 
-# ---------------------------------------------------------------------------
-# Main — option parsing, preflight, warning, confirmation, then run tests
-# ---------------------------------------------------------------------------
+_meets_requirement() {
+    case "$1" in
+        aws) _aws_available ;;
+        host|switch|pfsense|network) _host_available ;;
+        *) return 0 ;;
+    esac
+}
 
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 main() {
-    # ── Option parsing ────────────────────────────────────────────────────────
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --image)                   IMAGE="$2";                       shift ;;
-            --host)                    PFSENSE_HOST="$2";                shift ;;
-            --user)                    PFSENSE_USER="$2";                shift ;;
-            --identity-file)           PFSENSE_IDENTITY_FILE="$2";      shift ;;
-            --identity-password)       PFSENSE_IDENTITY_PASSWORD="$2";  shift ;;
-            --identity-password-file)  PFSENSE_IDENTITY_PASSWORD_FILE="$2"; shift ;;
-            --compression)             COMPRESSION="$2";                 shift ;;
-            --bucket)                  AWS_S3_BUCKET_NAME="$2";          shift ;;
-            --aws-config)              AWS_CONFIG_FILE="$2";             shift ;;
-            --aws-credentials)         AWS_CREDENTIALS_FILE="$2";       shift ;;
-            --dryrun)                  AWS_DRYRUN=true  ;;
-            --no-dryrun)               AWS_DRYRUN=false ;;
-            --scan)                    _SCAN=true ;;
-            --no-scan)                 _SCAN=false ;;
-            --no-coverage)             _ADVISE_COVERAGE=false ;;
+            --image)            IMAGE="$2";                 shift ;;
+            --bucket)           S3_BUCKET_NAME="$2";        shift ;;
+            --bucket-list)      BUCKET_LIST="$2";           shift ;;
+            --aws-config)       AWS_CONFIG_FILE="$2";       shift ;;
+            --aws-credentials)  AWS_CREDENTIALS_FILE="$2";  shift ;;
+            --dryrun)           DRYRUN=true  ;;
+            --no-dryrun)        DRYRUN=false ;;
+            --scan)             _SCAN=true   ;;
+            --no-scan)          _SCAN=false  ;;
+            --no-coverage)      _ADVISE_COVERAGE=false ;;
             --advise|--advice)
                 _ADVISE_EXPLICIT=true
-                # Accept an optional advisement list only when the next arg
-                # looks like one (not an image name or another flag).
                 if [[ $# -gt 1 && "$2" =~ \
                         ^(coverage|dive|grype|scout|all)(,(coverage|dive|grype|scout|all))*$ ]]; then
-                    advisements="$2"; shift
+                    local _adv_list="$2"; shift
                 else
-                    advisements="all"
+                    local _adv_list="grype,scout"
                 fi
-                _ADVISE_COVERAGE=false
-                _ADVISE_DIVE=false
-                _ADVISE_GRYPE=false
-                _ADVISE_SCOUT=false
-                IFS=',' read -ra adv_list <<< "$advisements"
-                for adv in "${adv_list[@]}"; do
-                    case "$adv" in
+                _ADVISE_COVERAGE=false; _ADVISE_DIVE=false
+                _ADVISE_GRYPE=false;    _ADVISE_SCOUT=false
+                local _adv
+                IFS=',' read -ra _advs <<< "${_adv_list}"
+                for _adv in "${_advs[@]}"; do
+                    case "${_adv}" in
                         coverage) _ADVISE_COVERAGE=true ;;
                         dive)     _ADVISE_DIVE=true ;;
                         grype)    _ADVISE_GRYPE=true ;;
                         scout)    _ADVISE_SCOUT=true ;;
-                        all) _ADVISE_COVERAGE=true; _ADVISE_DIVE=true
-                             _ADVISE_GRYPE=true; _ADVISE_SCOUT=true ;;
-                        *)   echo "Unknown advisement: $adv" >&2; exit 1 ;;
+                        all)
+                            _ADVISE_COVERAGE=true; _ADVISE_DIVE=true
+                            _ADVISE_GRYPE=true;    _ADVISE_SCOUT=true ;;
+                        *) echo "Unknown advisement: ${_adv}" >&2; exit 1 ;;
                     esac
                 done
                 ;;
             --no-advise)
+                _ADVISE_COVERAGE=false; _ADVISE_DIVE=false
+                _ADVISE_GRYPE=false;    _ADVISE_SCOUT=false
                 _ADVISE_EXPLICIT=true
-                _ADVISE_COVERAGE=false
-                _ADVISE_DIVE=false
-                _ADVISE_GRYPE=false
-                _ADVISE_SCOUT=false
                 ;;
             --cache)
                 [[ $# -ge 2 ]] || {
-                    echo "option '${1}' requires an argument" >&2; exit 1; }
+                    echo "option '$1' requires an argument" >&2; exit 1; }
                 _parse_cache_rules "$2"; shift
                 ;;
-            --yes)                     _YES=true ;;
-            --test)                    _ONLY_TEST="$2"; shift ;;
-            -h|--help)    show_help; exit 0 ;;
+            --yes)          _YES=true      ;;
+            --skip-e2e)     _SKIP_E2E=true ;;
+            --test)         _ONLY_TEST="$2"; shift ;;
+            -h|--help)      show_help; exit 0 ;;
+            --host)             HOST="$2";                  shift ;;
+            --user)             REMOTE_USER="$2";           shift ;;
+            --password)         REMOTE_PASSWORD="$2";       shift ;;
+            --password-file)    REMOTE_PASSWORD_FILE="$2";  shift ;;
+            --identity-file)    IDENTITY_FILE="$2";         shift ;;
+            --identity-password-file) IDENTITY_PASSWORD_FILE="$2"; shift ;;
             -*)
                 echo "Unknown option: $1" >&2
                 echo "Run 'test/staging --help' for usage." >&2
                 exit 1 ;;
             *)
-                # First non-option positional arg is the image.
-                if [[ -z "${IMAGE}" ]]; then
-                    IMAGE="$1"
-                else
-                    echo "Unexpected argument: $1" >&2
-                    exit 1
-                fi ;;
+                [[ -z "${IMAGE}" ]] && IMAGE="$1" || {
+                    echo "Unexpected argument: $1" >&2; exit 1; }
+                ;;
         esac
         shift
     done
 
-    # Expand tilde (~) in file paths.
-    [[ "${PFSENSE_IDENTITY_FILE}" == ~* ]] && PFSENSE_IDENTITY_FILE="${PFSENSE_IDENTITY_FILE/#~/$HOME}"
-    [[ "${PFSENSE_IDENTITY_PASSWORD_FILE}" == ~* ]] && PFSENSE_IDENTITY_PASSWORD_FILE="${PFSENSE_IDENTITY_PASSWORD_FILE/#~/$HOME}"
-    [[ "${PFSENSE_IDENTITY_PASSWORD}" == ~* ]] && PFSENSE_IDENTITY_PASSWORD="${PFSENSE_IDENTITY_PASSWORD/#~/$HOME}"
-    [[ "${AWS_CONFIG_FILE}" == ~* ]] && AWS_CONFIG_FILE="${AWS_CONFIG_FILE/#~/$HOME}"
-    [[ "${AWS_CREDENTIALS_FILE}" == ~* ]] && AWS_CREDENTIALS_FILE="${AWS_CREDENTIALS_FILE/#~/$HOME}"
-
-    # --no-scan implies --no-advise unless --advise was given explicitly.
+    # --no-scan implies --no-advise unless --advise was given explicitly
     if [[ "${_SCAN}" == "false" && "${_ADVISE_EXPLICIT}" == "false" ]]; then
-        _ADVISE_COVERAGE=false
-        _ADVISE_DIVE=false
-        _ADVISE_GRYPE=false
-        _ADVISE_SCOUT=false
+        _ADVISE_COVERAGE=false; _ADVISE_DIVE=false
+        _ADVISE_GRYPE=false;    _ADVISE_SCOUT=false
     fi
 
-    export IMAGE
-    export PFSENSE_HOST PFSENSE_IDENTITY_FILE PFSENSE_IDENTITY_PASSWORD \
-           PFSENSE_IDENTITY_PASSWORD_FILE COMPRESSION
-    export AWS_S3_BUCKET_NAME AWS_CONFIG_FILE AWS_CREDENTIALS_FILE AWS_DRYRUN
-    export _YES _ONLY_TEST
-    export _SCAN _ADVISE_COVERAGE _ADVISE_DIVE _ADVISE_GRYPE _ADVISE_SCOUT \
-           _ADVISE_EXPLICIT
+    export IMAGE S3_BUCKET_NAME BUCKET_LIST AWS_CONFIG_FILE AWS_CREDENTIALS_FILE DRYRUN
+    export _YES _SKIP_E2E _ONLY_TEST _SCAN
+    export _ADVISE_COVERAGE _ADVISE_DIVE _ADVISE_GRYPE _ADVISE_SCOUT _ADVISE_EXPLICIT
     export _CACHE_RESET_TRIVY _CACHE_RESET_GRYPE
-    export _CACHE_SKIP_UPDATE_TRIVY _CACHE_SKIP_UPDATE_GRYPE
+    export _CACHE_SKIP_UPDATE_TRIVY _CACHE_SKIP_UPDATE_GRYPE DOCKER_RUN_ARGS
 
-    local bucket="${AWS_S3_BUCKET_NAME:-}"
-    local pw_file="${PFSENSE_IDENTITY_PASSWORD_FILE:-/run/secrets/pfsense-identity-password}"
+    [[ -z "${BUCKET_LIST}" && -n "${S3_BUCKET_NAME}" ]] && BUCKET_LIST="${S3_BUCKET_NAME}"
 
-    local will_touch_pfsense=false will_touch_aws=false
-    [[ -n "${PFSENSE_HOST:-}" ]] && \
-        [[ -n "${PFSENSE_IDENTITY_FILE:-}" ]] && \
-        { [[ -n "${PFSENSE_IDENTITY_PASSWORD:-}" ]] || [[ -r "${pw_file}" ]]; } && \
-        will_touch_pfsense=true
+    # ── Preflight summary ─────────────────────────────────────────────────────
+    local aws_cfg="${AWS_CONFIG_FILE:-${HOME}/.secrets/aws-config}"
+    local aws_creds="${AWS_CREDENTIALS_FILE:-${HOME}/.secrets/aws-credentials}"
+    local bucket="${S3_BUCKET_NAME:-${BUCKET_LIST:-}}"
+    local will_touch_aws=false
     [[ -n "${bucket}" ]] && \
-        { [[ -r "${AWS_CONFIG_FILE:-}" ]] || \
-          [[ -r "${AWS_CREDENTIALS_FILE:-}" ]] || \
-          [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; } && \
+        { [[ -r "${aws_cfg}" ]] || [[ -r "${aws_creds}" ]] \
+          || [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; } && \
         will_touch_aws=true
 
-    # Bucket safety: force AWS_DRYRUN=true for non-test/staging buckets unless
-    # the caller has explicitly set AWS_DRYRUN=false.
-    local caution_bucket=false
-    if [[ -n "${bucket}" ]] && \
-       [[ "${bucket}" != test.* ]] && \
-       [[ "${bucket}" != staging.* ]]; then
-        caution_bucket=true
-        if [[ "${AWS_DRYRUN:-}" != "false" ]]; then
-            AWS_DRYRUN=true
-            export AWS_DRYRUN
-        fi
-    fi
-
-    # Detect common mistake: PFSENSE_IDENTITY_PASSWORD set to a file path.
-    # When the value is a readable local path the credential blocks below
-    # will bind-mount it and forward it as PFSENSE_IDENTITY_PASSWORD_FILE.
-    if [[ -n "${PFSENSE_IDENTITY_PASSWORD:-}" ]] && \
-       [[ -r "${PFSENSE_IDENTITY_PASSWORD}" ]]; then
-        echo ""
-        echo "  NOTE: PFSENSE_IDENTITY_PASSWORD='${PFSENSE_IDENTITY_PASSWORD}'"
-        echo "  is a readable file — treating it as PFSENSE_IDENTITY_PASSWORD_FILE"
-        echo "  and bind-mounting it into the container."
-        echo "  Use PFSENSE_IDENTITY_PASSWORD_FILE to suppress this note."
-    fi
-
-    local _advise_any=false
-    [[ "${_ADVISE_COVERAGE}" == "true" || "${_ADVISE_DIVE}" == "true" \
-        || "${_ADVISE_GRYPE}" == "true" || "${_ADVISE_SCOUT}" == "true" ]] \
-        && _advise_any=true
-
-    echo ""
     echo "================================================================"
-    echo "  WARNING: pfsense-backup staging tests"
+    echo " WARNING: test/staging exercises live infrastructure"
     echo "================================================================"
     echo ""
-    echo "  Image: ${IMAGE:-<not set>}"
-    echo ""
+    echo "  Image:    ${IMAGE:-<not set>}"
     if [[ "${_SCAN}" == "true" ]]; then
         echo "  Scan:     Trivy HIGH/CRITICAL (--no-scan to skip)"
     else
         echo "  Scan:     skipped (--no-scan)"
     fi
+    local _advise_any=false
+    [[ "${_ADVISE_COVERAGE}" == "true" || "${_ADVISE_DIVE}" == "true" \
+        || "${_ADVISE_GRYPE}" == "true" || "${_ADVISE_SCOUT}" == "true" ]] \
+        && _advise_any=true
     if "${_advise_any}"; then
-        local _advise_list=()
-        [[ "${_ADVISE_COVERAGE}" == "true" ]] && _advise_list+=(coverage)
-        [[ "${_ADVISE_DIVE}"     == "true" ]] && _advise_list+=(dive)
-        [[ "${_ADVISE_GRYPE}"    == "true" ]] && _advise_list+=(grype)
-        [[ "${_ADVISE_SCOUT}"    == "true" ]] && _advise_list+=(scout)
+        local _adv_items=()
+        [[ "${_ADVISE_COVERAGE}" == "true" ]] && _adv_items+=(coverage)
+        [[ "${_ADVISE_DIVE}"     == "true" ]] && _adv_items+=(dive)
+        [[ "${_ADVISE_GRYPE}"    == "true" ]] && _adv_items+=(grype)
+        [[ "${_ADVISE_SCOUT}"    == "true" ]] && _adv_items+=(scout)
         local IFS=,
-        echo "  Advise:   ${_advise_list[*]} (--no-advise to skip)"
+        echo "  Advise:   ${_adv_items[*]} (--no-advise to skip)"
     elif [[ "${_SCAN}" == "false" && "${_ADVISE_EXPLICIT}" == "false" ]]; then
-        echo "  Advise:   skipped (implied by --no-scan; use --advise to enable)"
+        echo "  Advise:   skipped (implied by --no-scan)"
     else
         echo "  Advise:   skipped (--no-advise)"
     fi
     echo ""
-    echo "  These tests exercise LIVE systems."
-    echo ""
-    if "${will_touch_pfsense}"; then
-        echo "  pfSense host : ${PFSENSE_HOST}"
-    fi
-    if "${will_touch_aws}"; then
-        echo "  S3 bucket    : ${bucket}"
-        if [[ "${AWS_DRYRUN:-false}" == "true" ]]; then
-            echo "  AWS mode     : DRY RUN (no real S3 writes)"
-        else
-            echo "  AWS mode     : LIVE (real S3 writes)"
-        fi
+    if [[ -n "${HOST:-}" ]]; then
+        echo "  Host:     ${HOST}"
     else
-        echo "  AWS:           not configured — AWS-dependent tests will be skipped"
+        echo "  Host:     not configured — network-dependent tests will be skipped"
     fi
     echo ""
+    # Bucket safety: force DRYRUN for non-test/staging buckets
+    local caution_bucket=false
+    if [[ -n "${bucket}" ]] && \
+       [[ "${bucket}" != test.* ]] && \
+       [[ "${bucket}" != staging.* ]]; then
+        caution_bucket=true
+        [[ "${DRYRUN}" != "false" ]] && { DRYRUN=true; export DRYRUN; }
+    fi
+
+    if "${will_touch_aws}"; then
+        echo "  Bucket:   s3://${bucket}"
+        if [[ "${DRYRUN}" == "true" ]]; then
+            echo "  Dry-run:  true — no objects will be deleted from this bucket"
+        else
+            echo "  Dry-run:  false — OBJECTS MAY BE DELETED FROM THIS BUCKET"
+        fi
+        echo ""
+    else
+        echo "  AWS:      not configured — AWS-dependent tests will be skipped"
+        echo ""
+    fi
 
     if "${caution_bucket}"; then
         echo "  !! CAUTION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-        echo "  !! BUCKET='${bucket}'"
-        echo "  !! does not start with 'test.' or 'staging.'."
-        if [[ "${AWS_DRYRUN:-}" == "false" ]]; then
-            echo "  !! --no-dryrun: real objects WILL be written to S3."
+        echo "  !! bucket='${bucket}' does not start with 'test.' or 'staging.'"
+        if [[ "${DRYRUN}" == "true" ]]; then
+            echo "  !! DRYRUN forced true. Pass --no-dryrun to allow deletions."
         else
-            echo "  !! AWS_DRYRUN forced to 'true' for safety."
-            echo "  !! Pass --no-dryrun to allow real S3 writes."
+            echo "  !! --no-dryrun: objects MAY be deleted from S3."
         fi
         echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         echo ""
     fi
 
-    # ── Confirmation ──────────────────────────────────────────────────────────
-    # Prompt only when real systems will be touched; --yes skips for scripted use.
-    if "${will_touch_pfsense}" || "${will_touch_aws}"; then
+    # Confirmation prompt
+    if "${will_touch_aws}"; then
         if "${_YES}"; then
             echo "  (--yes: skipping confirmation prompt)"
             echo ""
@@ -1303,10 +684,7 @@ main() {
             local response
             read -r response
             echo ""
-            if [[ "${response}" != "yes" ]]; then
-                echo "Aborted."
-                return 1
-            fi
+            [[ "${response}" != "yes" ]] && { echo "Aborted."; return 1; }
         fi
     fi
 
