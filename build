@@ -118,9 +118,9 @@ set -euo pipefail
 
 # -- GENERATED metadata (informational; enforcement is in CI) --
 # shellcheck disable=SC2034
-GENERATED_AT="2026-04-28T01:14:05Z"
+GENERATED_AT="2026-04-28T01:30:43Z"
 # shellcheck disable=SC2034
-GENERATED_FROM_SHA="32d6444"
+GENERATED_FROM_SHA="85cd04f"
 
 # ---------------------------------------------------------------------------
 # Defaults — may be overridden by environment variables or CLI flags.
@@ -645,6 +645,7 @@ if [[ "${TEST}" == "true" ]]; then
     echo "==> Stage 3: Test" >&2
     run chmod +x \
         "${script_dir}/test/run-all" \
+        "${script_dir}/test/13-source-coverage.bats" \
         "${script_dir}/test/staging" \
         "${script_dir}/test/bin/"*
     if [[ -x "${script_dir}/test/run-all" ]]; then
@@ -671,7 +672,8 @@ if [[ "${TEST}" == "true" ]]; then
                 test/09-image-metadata.bats \
                 test/10-pfsense-backup-cli-flags.bats \
                 test/11-scheduler-mode.bats \
-                test/12-multi-bucket.bats"
+                test/12-multi-bucket.bats \
+                test/13-source-coverage.bats"
     fi
     write_build_report
 fi
