@@ -481,23 +481,12 @@ test_staging_cron_fires() {
     # shellcheck disable=SC2064
     trap "docker rm --force '${container}' >/dev/null 2>&1 || true" RETURN
 
-    local elapsed=0 interval=10 timeout=240
-    while true; do
-        sleep "${interval}"
-        elapsed=$(( elapsed + interval ))
-        local last_line
-        last_line=$(docker logs "${container}" 2>&1 | tail -1)
-        printf '[%ds] last log: %s\n' "${elapsed}" "${last_line}"
-
-        if docker logs "${container}" 2>&1 | grep -q 'finish backup'; then
-            echo "PASS '${FUNCNAME[0]}': cron job fired and backup completed"
-            return 0
-        fi
-
-        if (( elapsed >= timeout )); then
-            echo "FAIL '${FUNCNAME[0]}': timed out after ${timeout}s waiting for cron backup"
-            docker logs "${container}" 2>&1 | tail -30 >&2
-            return 1
-        fi
-    done
+    local result=0
+    _wait_for_log_pattern "${container}" 'finish backup' 240 || result=$?
+    if [[ ${result} -eq 0 ]]; then
+        echo "PASS '${FUNCNAME[0]}': cron job fired and backup completed (${_WAIT_ELAPSED}s)"
+    else
+        echo "FAIL '${FUNCNAME[0]}': timed out after 240s waiting for cron backup"
+        return 1
+    fi
 }
