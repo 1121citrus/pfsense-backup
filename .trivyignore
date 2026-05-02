@@ -1,6 +1,26 @@
-# .trivyignore — unfixable CVEs suppressed from the gating Trivy scan.
-#
-# All entries below have been reviewed and are unfixable at this time.
-# Each is documented in SECURITY.md with the rationale and a tracking reference.
-#
-# (empty — gating Trivy scan currently reports 0 vulnerabilities)
+# CVEs with fix versions identified by Trivy but not yet available in the
+# AL2023 package repositories.  Remove entries once the fixed packages land.
+
+# glibc: DoS via iconv() — fix: 2.34-231.amzn2023.0.4 (not yet in repo)
+CVE-2026-4046
+
+# cpython: incomplete control-char validation in http.cookies
+# fix: python3 3.9.25-1.amzn2023.0.5, python3.12 3.12.13-2.amzn2023.0.1
+CVE-2026-3644
+
+# cpython: stack overflow parsing XML with deeply nested DTD content models
+# fix: python3.12 3.12.13-2.amzn2023.0.1
+CVE-2026-4224
+
+# cpython: arbitrary code execution via command injection in webbrowser.open()
+# fix: python3 3.9.25-1.amzn2023.0.5, python3.12 3.12.13-2.amzn2023.0.1
+CVE-2026-4786
+
+# cpython: arbitrary code execution/info disclosure via use-after-free in
+# decompression — fix: python3 3.9.25-1.amzn2023.0.5,
+# python3.12 3.12.13-2.amzn2023.0.1
+CVE-2026-6100
+
+# openssh/openssh-clients: privilege escalation via scp legacy protocol
+# fix: 8.7p1-8.amzn2023.0.17 (pending in AL2023 repos used by base image)
+CVE-2026-35385

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# 1121citrus.build-date 2026-05-01T00:52:40Z
-# 1121citrus.build-version 6bbe275c0778
+# 1121citrus.build-date 2026-05-02T13:10:45Z
+# 1121citrus.build-version 27d0e5cfb6f8
 
 # build — local CI equivalent for pfsense-backup.
 #

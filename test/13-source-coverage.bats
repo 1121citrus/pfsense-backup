@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck shell=bash
 # shellcheck disable=SC2016  # single-quoted 'bash -c' strings expand in subshell
+bats_require_minimum_version 1.5.0
 # test/13-source-coverage.bats — direct-execution coverage tests.
 #
 # Run source scripts directly (not via Docker) so kcov can instrument them.
@@ -264,7 +265,7 @@ teardown() {
     # which may not exist on the test host; the exec failure (exit 127) is
     # expected and acceptable — what matters is that the "[ERROR] need bucket"
     # message is NOT emitted.
-    run env \
+    run -127 env \
         AWS_S3_BUCKET_NAME=test-bucket \
         BUCKET= \
         BUCKET_LIST= \
@@ -273,7 +274,7 @@ teardown() {
 }
 
 @test "backup: --bucket flag satisfies the bucket check" {
-    run env \
+    run -127 env \
         AWS_S3_BUCKET_NAME= \
         BUCKET= \
         BUCKET_LIST= \
@@ -282,7 +283,7 @@ teardown() {
 }
 
 @test "backup: BUCKET_LIST env satisfies the bucket check" {
-    run env \
+    run -127 env \
         AWS_S3_BUCKET_NAME= \
         BUCKET= \
         BUCKET_LIST="bucket-a bucket-b" \

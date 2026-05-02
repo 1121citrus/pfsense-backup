@@ -411,8 +411,12 @@ function deliver_backup() {
     if [[ "${upload_to_aws}" == "true" ]]; then
         [[ -n "${bucket}" ]] || error "need --bucket or BUCKET to upload to S3"
 
-        "${AWS_CMD}" s3api head-bucket --bucket "${bucket}" 2>/dev/null || \
-            error "bucket '${bucket}' does not exist or is not accessible with the provided AWS credentials"
+        # Skip bucket pre-flight in dry-run mode — aws s3 mv --dryrun does not
+        # need the bucket to be accessible and these tests run without AWS creds.
+        if ! is_true "${DRYRUN:-false}"; then
+            "${AWS_CMD}" s3api head-bucket --bucket "${bucket}" 2>/dev/null || \
+                error "bucket '${bucket}' does not exist or is not accessible with the provided AWS credentials"
+        fi
 
         confirm_live_run
 
