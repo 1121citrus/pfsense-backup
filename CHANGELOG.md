@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-05-02
+
+### Fixed
+
+- Guard `s3api head-bucket` pre-flight with `! is_true "${DRYRUN:-false}"` so
+  dryrun-only staging tests (`test_staging_backup_downloads_config`,
+  `test_staging_backup_xml_has_expected_fields`) pass without live S3
+  credentials; the bucket check is unnecessary before `aws s3 mv --dryrun`
+- Populate `.trivyignore.yaml` with six AL2023 CVEs whose fix versions are
+  identified by Trivy but not yet in the package repos — CVE-2026-4046
+  (glibc), CVE-2026-3644/4224/4786/6100 (python3/cpython), CVE-2026-35385
+  (openssh); fixes gating CI Trivy scan failure
+- Mount `.trivyignore` into the Trivy container in `build` (Stage 4) and
+  `test/staging` so locally suppressed CVEs are also suppressed in the
+  local build pipeline
+- Add `bats_require_minimum_version 1.5.0` to `test/13-source-coverage.bats`
+  and convert three `run` calls to `run -127` to suppress BW02 warnings and
+  assert the expected exec-failure exit code explicitly
+
 ## [1.0.5] - 2026-04-27
 
 ### Changed
