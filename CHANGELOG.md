@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-05-05
+
+### Added
+
+- Gitleaks CI workflow (`.github/workflows/gitleaks-ci.yml`) scans the
+  repository for leaked secrets on every push and pull request
+- `gitleaks` advisement in `build` script (`--advise gitleaks`, Stage 5e);
+  non-gating, advisory only
+
+### Changed
+
+- Bump tool image versions in `build` and `test/staging`: `grype` v0.87.0 →
+  v0.112.0, `trivy` 0.62.1 → 0.70.0, `hadolint` v2.12.0 → v2.14.0,
+  `shellcheck` v0.10.0 → v0.11.0
+- Filter small inefficient-file entries from Dive advisory output in
+  `test/staging`; entries below `DIVE_MIN_WASTED_BYTES` (default 1 MB) are
+  suppressed to reduce noise
+
 ## [1.0.6] - 2026-05-02
 
 ### Fixed
@@ -101,7 +119,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.6...v1.0.7
+[1.0.6]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.2...v1.0.3
