@@ -39,6 +39,9 @@ vulnerabilities:
     expired_at: "2026-12-31T00:00:00Z"
 
   # gnutls package update pending in available AL2023 mirrors
+  - id: CVE-2026-33845
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
   - id: CVE-2026-33846
     statement: "fixed package version not yet available in AL2023 package repositories"
     expired_at: "2026-12-31T00:00:00Z"
@@ -58,6 +61,21 @@ vulnerabilities:
     statement: "fixed package version not yet available in AL2023 package repositories"
     expired_at: "2026-12-31T00:00:00Z"
   - id: CVE-2026-5260
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+
+  # libsolv package update pending in available AL2023 mirrors
+  # 0.7.22-1.amzn2023.0.4 not yet available
+  - id: CVE-2026-48863
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-48864
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-9149
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-9150
     statement: "fixed package version not yet available in AL2023 package repositories"
     expired_at: "2026-12-31T00:00:00Z"
 

@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgrade pip from 21.3.1 to 26.0.1 in Dockerfile using `--ignore-installed`
   overlay to resolve pip CVE-2023-5752 and related HIGH/MEDIUM findings
   without conflicting with RPM-managed base package
-- Pin `aws-backup-base` to digest `sha256:189f8f99...affaf77` (rebuilt with
+- Pin `aws-backup-base` to digest `sha256:6e620e3a...e70181d` (rebuilt with
   Go 1.26.4) to resolve supercronic Go stdlib CVE-2026-42504
 - Extend `.trivyignore` with gnutls CVE-2026-33845 and libsolv CVEs
   (48863, 48864, 9149, 9150) pending AL2023 package availability
