@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-06-09
+
+### Fixed
+
+- Complete `.trivyignore.yaml` with CVE-2026-33845 (gnutls) and four libsolv
+  CVEs (48863, 48864, 9149, 9150) that were reported as fixed after initial
+  1.0.8 preparation but before packages became available in AL2023 mirrors
+- Correct CHANGELOG base image digest reference from `sha256:189f8f99...affaf77`
+  to `sha256:6e620e3a...e70181d` (the pushed registry digest)
+
 ## [1.0.8] - 2026-06-09
 
 ### Fixed
@@ -157,7 +167,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.7...HEAD
+[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.9...HEAD
+[1.0.9]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.8...v1.0.9
+[1.0.8]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.4...v1.0.5
