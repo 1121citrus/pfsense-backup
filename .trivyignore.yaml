@@ -37,3 +37,59 @@ vulnerabilities:
   - id: CVE-2026-35385
     statement: "fix version not yet available in AL2023 package repositories"
     expired_at: "2026-12-31T00:00:00Z"
+
+  # gnutls package update pending in available AL2023 mirrors
+  - id: CVE-2026-33846
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-3833
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-42009
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-42010
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-42014
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-42015
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-5260
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+
+  # libcap/go stdlib advisory set reported via AL2023 package metadata
+  - id: CVE-2026-27142
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-33811
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-33814
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-39820
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-39823
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-42499
+    statement: "fixed package version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+
+  # urllib3 2.7.0 remediation pending compatibility rollout
+  - id: CVE-2026-44431
+    statement: "fixed package version pending controlled runtime upgrade"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-44432
+    statement: "fixed package version pending controlled runtime upgrade"
+    expired_at: "2026-12-31T00:00:00Z"
+
+  # supercronic embedded Go stdlib vulnerability fixed in Go 1.26.4
+  - id: CVE-2026-42504
+    statement: "fixed in refreshed base image build; suppression retained until base rollout completes"
+    expired_at: "2026-12-31T00:00:00Z"
