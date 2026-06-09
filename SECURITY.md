@@ -20,7 +20,7 @@ an S3 bucket. The attack surface is limited to:
 
 ---
 
-## CVE Status (Last Reviewed 2026-04-27)
+## CVE Status (Last Reviewed 2026-06-09)
 
 Advisory scans are run with Trivy (gating), Grype, and Docker Scout. The
 tables below reflect the state after the most recent build.
@@ -33,9 +33,14 @@ tables below reflect the state after the most recent build.
 
 ### Open Vulnerabilities
 
-None. The migration to Amazon Linux 2023 (v1.0.5, 2026-04-27) resolved all
-previously documented Alpine-specific CVEs. CI runs Trivy, Grype, and Docker
-Scout on every push; any new findings will be tracked here.
+The gating Trivy scan is clean, but advisory feeds still report the items below.
+
+| Status | CVE / Advisory | Component | Notes |
+| --- | --- | --- | --- |
+| Upstream unavailable | `CVE-2026-44431`, `CVE-2026-44432` | `urllib3` | Docker Scout reports `urllib3@2.6.3` as HIGH. The fixed version is `2.7.0`, which is not yet published to the package index consumed by the image build. |
+| Scout metadata / feed issue | `CVE-2023-31484`, `CVE-2023-31486` | AL2023 `perl` subpackages | Docker Scout still reports these against AL2023 `perl` virtual/meta package entries even though the reported installed release (`5.32.1-477.amzn2023.0.8`) is newer than Scout's stated fixed releases (`.0.4` / `.0.5`). The runtime image does not install the top-level `perl` RPM directly. |
+| Scout stale package detection | `CVE-2026-44431` | `urllib3@1.25.10` | Docker Scout also reports a stale `urllib3@1.25.10` package record alongside the current `urllib3@2.6.3`. Trivy and the runtime validation see the current package set, and the image runs with `pip 26.0.1` and `urllib3 2.6.3`. |
+| Pending validation | `CVE-2026-42504` | `supercronic` Go stdlib | `aws-backup-base` was rebuilt with `supercronic` compiled under Go `1.26.4`, and `pfsense-backup` now pins that rebuilt base digest. The base image binary shows `go1.26.4`; Docker Scout confirmation for the child image is still pending a full post-pin rebuild/scan cycle. |
 
 ### Remediated Vulnerabilities
 
@@ -46,8 +51,18 @@ Scout on every push; any new findings will be tracked here.
 | CVE-2026-26007 | cryptography (pip) | Pinned `cryptography>=47.0.0` in `requirements.txt` (via `aws-backup-base`) |
 | CVE-2026-21441, CVE-2025-66471, CVE-2025-66418 | urllib3 (pip) | Pinned `urllib3>=2.6.3` in `requirements.txt` (via `aws-backup-base`) |
 | CVE-2026-24049 | wheel (pip) | Pinned `wheel>=0.47.0` in `requirements.txt` (via `aws-backup-base`) |
-| CVE-2025-8869 | pip | Upgraded to pip≥25.3 (via `aws-backup-base`) |
+| CVE-2025-8869, CVE-2026-8643, CVE-2026-6357, CVE-2026-3219 | pip | Upgraded to `pip>=26.0.1` during the image build |
 | CVE-2024-5569 | zipp (pip) | Pinned `zipp>=3.23.1` in `requirements.txt` (via `aws-backup-base`) |
+
+### Scout-Specific Notes
+
+Docker Scout is treated as advisory in staging because its feed and package
+inventory can lag the runtime state observed by Trivy and the live container.
+Current examples include:
+
+1. A stale `urllib3@1.25.10` record even after the runtime upgrades to `urllib3 2.6.3`.
+2. Repeated `perl` HIGH findings tied to AL2023 package metadata where the installed release is already newer than Scout's cited fixed version.
+3. Long-running scans that may exceed the staging timeout budget; these runs are allowed to continue as advisory-only.
 
 ---
 

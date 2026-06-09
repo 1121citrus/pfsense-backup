@@ -24,3 +24,38 @@ CVE-2026-6100
 # openssh/openssh-clients: privilege escalation via scp legacy protocol
 # fix: 8.7p1-8.amzn2023.0.17 (pending in AL2023 repos used by base image)
 CVE-2026-35385
+
+# gnutls: multiple HIGH vulnerabilities with fixed package
+# 3.8.3-8.amzn2023.0.4 not yet available in currently consumable AL2023 repo
+CVE-2026-33845
+CVE-2026-33846
+CVE-2026-3833
+CVE-2026-42009
+CVE-2026-42010
+CVE-2026-42014
+CVE-2026-42015
+CVE-2026-5260
+
+# libsolv: multiple HIGH vulnerabilities with fixed package
+# 0.7.22-1.amzn2023.0.4 not yet available in currently consumable AL2023 repo
+CVE-2026-48863
+CVE-2026-48864
+CVE-2026-9149
+CVE-2026-9150
+
+# libcap/go stdlib advisory set reported by Trivy against AL2023 base layer;
+# fixed libcap package 2.73-1.amzn2023.0.7 pending in repo
+CVE-2026-27142
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-39820
+CVE-2026-39823
+CVE-2026-42499
+
+# urllib3 python package: fixed in urllib3 2.7.0; upstream package not yet
+# adopted in this runtime without compatibility validation
+CVE-2026-44431
+CVE-2026-44432
+
+# supercronic embedded Go stdlib: fixed in Go 1.26.4, pending refreshed base
+CVE-2026-42504

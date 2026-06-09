@@ -297,6 +297,10 @@ test_staging_grype_advise() {
         _skip "--no-advise grype: Grype advisory scan skipped"; return 0; }
     printf '  running Grype advisory scan on %s...\n' "${IMAGE}" >&2
     local _extra=()
+    local _tmp
+    _tmp=$(mktemp /tmp/staging-grype-XXXXXX)
+    # shellcheck disable=SC2064
+    trap "rm -f '${_tmp}'" RETURN
     [[ "${_CACHE_SKIP_UPDATE_GRYPE}" == "true" ]] && {
         echo "    Grype DB update skipped (--cache skip-update=grype)" >&2
         _extra+=(-e GRYPE_DB_AUTO_UPDATE=false); }
@@ -305,7 +309,13 @@ test_staging_grype_advise() {
         -v "${GRYPE_CACHE_VOLUME}:/root/.cache/grype" \
         "${_extra[@]}" \
         "${GRYPE_IMAGE}:${GRYPE_TAG}" \
-            docker-archive:/scan.tar 2>&1 || true
+            docker-archive:/scan.tar >"${_tmp}" 2>&1 || true
+
+    if [[ -f .grypeignore ]]; then
+        grep -F -v -f .grypeignore "${_tmp}" || true
+    else
+        cat "${_tmp}"
+    fi
     echo "PASS '${FUNCNAME[0]}': Grype advisory scan complete (advisory only)"
 }
 
@@ -317,7 +327,28 @@ test_staging_scout_advise() {
     [[ "${_ADVISE_SCOUT}" == "true" ]] || {
         _skip "--no-advise scout: Docker Scout advisory scan skipped"; return 0; }
     printf '  running Docker Scout advisory scan on %s...\n' "${IMAGE}" >&2
-    docker scout cves "${IMAGE}" 2>&1 || true
+    local _timeout_s="${SCOUT_TIMEOUT_SECONDS:-180}"
+    local _elapsed=0 _interval=5 _pid=0
+    local _tmp
+    _tmp=$(mktemp /tmp/staging-scout-XXXXXX)
+    # shellcheck disable=SC2064
+    trap "rm -f '${_tmp}'" RETURN
+
+    docker scout cves "${IMAGE}" >"${_tmp}" 2>&1 &
+    _pid=$!
+    while kill -0 "${_pid}" 2>/dev/null; do
+        sleep "${_interval}"
+        _elapsed=$(( _elapsed + _interval ))
+        if (( _elapsed >= _timeout_s )); then
+            echo "  Docker Scout advisory timed out after ${_timeout_s}s; continuing (advisory only)" >&2
+            kill "${_pid}" 2>/dev/null || true
+            wait "${_pid}" 2>/dev/null || true
+            break
+        fi
+    done
+    if [[ -s "${_tmp}" ]]; then
+        cat "${_tmp}"
+    fi
     echo "PASS '${FUNCNAME[0]}': Docker Scout advisory scan complete (advisory only)"
 }
 

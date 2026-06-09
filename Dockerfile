@@ -5,7 +5,7 @@
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-ARG BASE_IMAGE=1121citrus/aws-backup-base:latest
+ARG BASE_IMAGE=1121citrus/aws-backup-base@sha256:189f8f99115b305835c0fe046aeeb37ee3a2addbb329df308b24e5a04affaf77
 
 ARG PFSENSE_BACKUP_VERSION=
 ARG VERSION=dev
@@ -68,11 +68,17 @@ RUN set -eux; \
         traceroute \
         xz \
         zip \
+    && dnf upgrade -y --quiet \
+        gnutls \
+        libcap \
+        openssh \
+        openssh-clients \
     && pip3 install --no-cache-dir --upgrade \
         'cryptography>=46.0.5' \
         'urllib3>=2.6.3' \
         'wheel>=0.46.2' \
         'zipp>=3.19.1' \
+    && python3 -m pip install --no-cache-dir --ignore-installed 'pip>=26.0.1' \
     && dnf reinstall -y --quiet python3-urllib3 \
     && install -d -m 755 \
             /usr/local/share/pfsense-backup \
