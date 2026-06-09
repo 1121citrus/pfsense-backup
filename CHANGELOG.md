@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-06-09
+
+### Fixed
+
+- Upgrade pip from 21.3.1 to 26.0.1 in Dockerfile using `--ignore-installed`
+  overlay to resolve pip CVE-2023-5752 and related HIGH/MEDIUM findings
+  without conflicting with RPM-managed base package
+- Pin `aws-backup-base` to digest `sha256:189f8f99...affaf77` (rebuilt with
+  Go 1.26.4) to resolve supercronic Go stdlib CVE-2026-42504
+- Extend `.trivyignore` with gnutls CVE-2026-33845 and libsolv CVEs
+  (48863, 48864, 9149, 9150) pending AL2023 package availability
+- Extend `.trivyignore.yaml` with structured YAML suppressions for all newly
+  suppressed CVEs (gnutls, libsolv, urllib3, supercronic Go stdlib) with
+  rationale statements and expiration dates for audit trail
+- Update `SECURITY.md` with 2026-06-09 review date and categorized remaining
+  HIGH findings (urllib3 2.7.0 unpublished, AL2023 package lag, Scout feed
+  issues)
+
+### Added
+
+- `.grypeignore` file to suppress fixed Go stdlib CVE-2026-42504 in Grype
+  advisory scans
+- Grype advisory filtering in `test/staging` to honor `.grypeignore` when
+  present; output filtered through `grep -F -v` before display
+- Scout advisory timeout handling in `test/staging` with 180s default limit;
+  prevents indefinite hangs on Scout feed issues
+
+### Changed
+
+- Replace `gitleaks` advisory scan with three new advisory types in `build`:
+  `churn` (code-maat revision analysis), `metrics` (scc code statistics),
+  and `security` (graudit pattern scan)
+- Change direct `docker run` calls to `run docker run` in `build` for
+  consistent dry-run behavior across lint, test, and advisory stages
+- Move `write_build_report` call outside conditional in test stage to ensure
+  report is always written regardless of dry-run state
+- Remove version metadata comments from `build` script header
+
 ## [1.0.7] - 2026-05-05
 
 ### Added
