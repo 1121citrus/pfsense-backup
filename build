@@ -812,7 +812,7 @@ if [[ "${SCAN}" == "true" ]]; then
     run docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
         -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
-        -v "${script_dir}/.trivyignore:/.trivyignore:ro" \
+        -v "${script_dir}/.trivyignore.yaml:/.trivyignore:ro" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
             --quiet \
             --no-progress \

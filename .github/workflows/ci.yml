@@ -36,14 +36,13 @@ jobs:
         test/12-multi-bucket.bats
       smoke-enabled: true
       smoke-commands: |
+        docker run --rm "${IMAGE}:${VERSION}" bash -c 'test -x /usr/local/bin/backup'
+        docker run --rm "${IMAGE}:${VERSION}" /usr/local/bin/pfsense-backup --help
         docker run --rm --entrypoint bash "${IMAGE}:${VERSION}" --version
         docker run --rm --entrypoint aws "${IMAGE}:${VERSION}" --version
         docker run --rm --entrypoint ssh "${IMAGE}:${VERSION}" -V
         docker run --rm --entrypoint sshpass "${IMAGE}:${VERSION}" -V
         docker run --rm --entrypoint test "${IMAGE}:${VERSION}" -f /usr/local/include/common-functions
-        docker run --rm --entrypoint test "${IMAGE}:${VERSION}" -x /usr/local/bin/backup
-        docker run --rm --entrypoint test "${IMAGE}:${VERSION}" -x /usr/local/bin/pfsense-backup
         docker run --rm --entrypoint test "${IMAGE}:${VERSION}" -x /usr/local/bin/healthcheck
-        docker run --rm --entrypoint /usr/local/bin/pfsense-backup "${IMAGE}:${VERSION}" --help
       trivyignore: .trivyignore.yaml
     secrets: inherit
