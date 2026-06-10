@@ -7,123 +7,43 @@ on:
   pull_request:
     branches: [main, master]
 
-# Cancel in-progress runs for branch/PR refs; let tag builds always complete.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
-# Minimal permissions by default; individual jobs add only what they need.
 permissions:
   contents: read
 
-env:
-  IMAGE: 1121citrus/pfsense-backup
-
 jobs:
-  # ── Stage 1: Lint ──────────────────────────────────────────────────────────
-  lint:
-    uses: 1121citrus/shared-github-workflows/.github/workflows/lint.yml@v1
-
-  # ── Stage 2: Build ─────────────────────────────────────────────────────────
-  # Build image for scanning and smoke tests.  The bats test suite mounts
-  # project source directly so it runs in parallel with (not after) build.
-  build:
-    needs: lint
-    uses: 1121citrus/shared-github-workflows/.github/workflows/build.yml@v1
+  ci:
+    uses: 1121citrus/shared-github-workflows/.github/workflows/pipeline.yml@v1
     with:
       image: 1121citrus/pfsense-backup
-
-  # ── Stage 3: Test ──────────────────────────────────────────────────────────
-  # Bats tests run inside bats/bats and spin up the published :latest image via
-  # Docker-in-Docker (host socket mount).  Source is mounted at $PWD:$PWD so
-  # that nested docker run -v paths resolve correctly on the host daemon.
-  # docker-cli is installed via apk because bats/bats:1.13.0 does not include it.
-  test:
-    needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - name: Run test suites
-        run: |
-          docker run -i --rm \
-            -v "$PWD:$PWD" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e "IMAGE=${IMAGE}:latest" \
-            --workdir "$PWD" \
-            --entrypoint sh \
-            bats/bats:1.13.0 \
-            -c "apk add --quiet --no-cache docker-cli >/dev/null 2>&1 \
-                && bats \
-                    test/01-build.bats \
-                    test/02-pfsense-backup.bats \
-                    test/03-backup-required-vars.bats \
-                    test/04-backup-success.bats \
-                    test/05-backup-encryption.bats \
-                    test/06-backup-aws-failure.bats \
-                    test/07-backup-xml-validation.bats \
-                    test/08-healthcheck.bats \
-                    test/09-image-metadata.bats \
-                    test/10-pfsense-backup-cli-flags.bats \
-                    test/11-scheduler-mode.bats \
-                    test/12-multi-bucket.bats"
-
-  # ── Stage 3b: Image smoke test ─────────────────────────────────────────────
-  # Run built-image smoke tests to catch packaging/runtime regressions not
-  # visible in source-mounted bats tests.
-  smoke-test:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download image artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: docker-image
-          path: /tmp
-      - name: Load image
-        run: gunzip -c /tmp/image.tar.gz | docker load
-
-      - name: Verify bash is available
-        run: docker run --rm --entrypoint bash "$IMAGE:latest" --version
-
-      - name: Verify aws CLI is available
-        run: docker run --rm --entrypoint aws "$IMAGE:latest" --version
-
-      - name: Verify ssh is available
-        run: docker run --rm --entrypoint ssh "$IMAGE:latest" -V
-
-      - name: Verify sshpass is available
-        run: docker run --rm --entrypoint sshpass "$IMAGE:latest" -V
-
-      - name: Verify common-functions is installed
-        run: docker run --rm --entrypoint test "$IMAGE:latest" -f /usr/local/include/common-functions
-
-      - name: Verify backup is executable
-        run: docker run --rm --entrypoint test "$IMAGE:latest" -x /usr/local/bin/backup
-
-      - name: Verify pfsense-backup is executable
-        run: docker run --rm --entrypoint test "$IMAGE:latest" -x /usr/local/bin/pfsense-backup
-
-      - name: Verify healthcheck is executable
-        run: docker run --rm --entrypoint test "$IMAGE:latest" -x /usr/local/bin/healthcheck
-
-      - name: Verify pfsense-backup --help exits 0
-        run: docker run --rm --entrypoint /usr/local/bin/pfsense-backup "$IMAGE:latest" --help
-
-  # ── Stage 4: Security scan ─────────────────────────────────────────────────
-  scan:
-    needs: build
-    uses: 1121citrus/shared-github-workflows/.github/workflows/scan.yml@v1
-    with:
-      image: 1121citrus/pfsense-backup
+      inject-metadata: true
+      test-mode: bats-docker-cli
+      test-bats-files: |
+        test/01-build.bats
+        test/02-pfsense-backup.bats
+        test/03-backup-required-vars.bats
+        test/04-backup-success.bats
+        test/05-backup-encryption.bats
+        test/06-backup-aws-failure.bats
+        test/07-backup-xml-validation.bats
+        test/08-healthcheck.bats
+        test/09-image-metadata.bats
+        test/10-pfsense-backup-cli-flags.bats
+        test/11-scheduler-mode.bats
+        test/12-multi-bucket.bats
+      smoke-enabled: true
+      smoke-commands: |
+        docker run --rm --entrypoint bash "${IMAGE}:${VERSION}" --version
+        docker run --rm --entrypoint aws "${IMAGE}:${VERSION}" --version
+        docker run --rm --entrypoint ssh "${IMAGE}:${VERSION}" -V
+        docker run --rm --entrypoint sshpass "${IMAGE}:${VERSION}" -V
+        docker run --rm --entrypoint test "${IMAGE}:${VERSION}" -f /usr/local/include/common-functions
+        docker run --rm --entrypoint test "${IMAGE}:${VERSION}" -x /usr/local/bin/backup
+        docker run --rm --entrypoint test "${IMAGE}:${VERSION}" -x /usr/local/bin/pfsense-backup
+        docker run --rm --entrypoint test "${IMAGE}:${VERSION}" -x /usr/local/bin/healthcheck
+        docker run --rm --entrypoint /usr/local/bin/pfsense-backup "${IMAGE}:${VERSION}" --help
       trivyignore: .trivyignore.yaml
-
-  # ── Stage 5: Push to Docker Hub ────────────────────────────────────────────
-  push:
-    needs: [test, scan, smoke-test]
-    if: >
-      github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/tags/v')
-    uses: 1121citrus/shared-github-workflows/.github/workflows/push.yml@v1
-    with:
-      image: 1121citrus/pfsense-backup
     secrets: inherit
