@@ -20,10 +20,11 @@ an S3 bucket. The attack surface is limited to:
 
 ---
 
-## CVE Status (Last Reviewed 2026-06-09)
+## CVE Status (Last Reviewed 2026-07-10)
 
 Advisory scans are run with Trivy (gating), Grype, and Docker Scout. The
-tables below reflect the state after the most recent build.
+tables below reflect the current validated scan posture for the digest pinned
+in this repository.
 
 ### Trivy (Gating Scan)
 
@@ -40,7 +41,7 @@ The gating Trivy scan is clean, but advisory feeds still report the items below.
 | Upstream unavailable | `CVE-2026-44431`, `CVE-2026-44432` | `urllib3` | Docker Scout reports `urllib3@2.6.3` as HIGH. The fixed version is `2.7.0`, which is not yet published to the package index consumed by the image build. |
 | Scout metadata / feed issue | `CVE-2023-31484`, `CVE-2023-31486` | AL2023 `perl` subpackages | Docker Scout still reports these against AL2023 `perl` virtual/meta package entries even though the reported installed release (`5.32.1-477.amzn2023.0.8`) is newer than Scout's stated fixed releases (`.0.4` / `.0.5`). The runtime image does not install the top-level `perl` RPM directly. |
 | Scout stale package detection | `CVE-2026-44431` | `urllib3@1.25.10` | Docker Scout also reports a stale `urllib3@1.25.10` package record alongside the current `urllib3@2.6.3`. Trivy and the runtime validation see the current package set, and the image runs with `pip 26.0.1` and `urllib3 2.6.3`. |
-| Pending validation | `CVE-2026-42504` | `supercronic` Go stdlib | `aws-backup-base` was rebuilt with `supercronic` compiled under Go `1.26.4`, and `pfsense-backup` now pins that rebuilt base digest. The base image binary shows `go1.26.4`; Docker Scout confirmation for the child image is still pending a full post-pin rebuild/scan cycle. |
+| Pending rollout | `CVE-2026-42504` | `supercronic` Go stdlib | `aws-backup-base` has a refreshed build with `supercronic` compiled under Go `1.26.4`, but this repository is still pinned to base digest `sha256:4c8e839b4a36e0412734b732e098365d84e14b3b44abba67a96a27d86464c66a`. Docker Scout can continue to report this advisory until the base digest pin is promoted and re-scanned. |
 
 ### Remediated Vulnerabilities
 
