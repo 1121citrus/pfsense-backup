@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-07-10
+
+### Fixed
+
+- `run_scheduler()` now touches `HEALTHCHECK_STARTUP_FILE` before handing
+  off to supercronic, so `healthcheck`'s startup-grace-period logic
+  actually has a marker to read. Previously the grace-period branch was
+  dead code: every fresh deployment reported unhealthy until the first
+  scheduled backup completed, which can be a full cron period away.
+  Found live on citrus-2's production deployment.
+- `build`'s Trivy scan mounted `.trivyignore.yaml` at a fixed
+  `/.trivyignore` container path with no extension, causing Trivy to
+  silently parse its YAML content as the plain-text ignorefile format
+  and match nothing. Every already-documented exception in
+  `.trivyignore.yaml` had no effect. Fixed by preserving the source
+  file's extension in the mount destination.
+
+### Security
+
+- Bumped the `aws-backup-base` dependency to v1.1.8, which refreshes a
+  month-stale `amazonlinux:2023` digest pin and clears 65+ unfixed HIGH
+  CVEs. Combined with the ignorefile fix above, a full Trivy/Grype/Scout
+  scan now passes cleanly.
+
 ## [1.0.9] - 2026-06-09
 
 ### Fixed
@@ -167,7 +191,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.9...HEAD
+[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.10...HEAD
+[1.0.10]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.9...v1.0.10
 [1.0.9]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.8...v1.0.9
 [1.0.8]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.6...v1.0.7
