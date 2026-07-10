@@ -26,10 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Bumped the `aws-backup-base` dependency to v1.1.8, which refreshes a
-  month-stale `amazonlinux:2023` digest pin and clears 65+ unfixed HIGH
-  CVEs. Combined with the ignorefile fix above, a full Trivy/Grype/Scout
-  scan now passes cleanly.
+- Bumped the `aws-backup-base` dependency to v1.1.8 (digest
+  `sha256:4c8e839b...464c66a`), which refreshes a month-stale
+  `amazonlinux:2023` digest pin and clears 65+ unfixed HIGH CVEs.
+  Combined with the ignorefile fix above, a full Trivy/Grype/Scout scan
+  now passes cleanly.
 
 ## [1.0.9] - 2026-06-09
 

@@ -5,7 +5,7 @@
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-ARG BASE_IMAGE=1121citrus/aws-backup-base@sha256:6e620e3a7e4ae193eb2bddebc626f896fa4795d26fdd01f75c0a2dd28e70181d
+ARG BASE_IMAGE=1121citrus/aws-backup-base@sha256:4c8e839b4a36e0412734b732e098365d84e14b3b44abba67a96a27d86464c66a
 
 ARG PFSENSE_BACKUP_VERSION=
 ARG VERSION=dev
