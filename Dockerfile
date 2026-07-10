@@ -96,7 +96,6 @@ RUN set -eux; \
     && rm -rf /var/cache/dnf \
     && echo "[INFO] completed installing pfsense-backup"
 
-COPY --chmod=644 ./src/common-functions /usr/local/include/
 COPY --chmod=755 ./src/healthcheck ./src/backup ./src/pfsense-backup \
                  ./src/startup /usr/local/bin/
 
