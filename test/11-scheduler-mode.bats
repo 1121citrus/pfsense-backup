@@ -175,3 +175,38 @@ setup() {
     [[ "$output" == *"SHELL=/bin/sh"* ]]
     [[ "$output" == *"/bin/true"* ]]
 }
+
+# ── Scheduler mode healthcheck marker ────────────────────────────────────────
+#
+# run_scheduler() must touch HEALTHCHECK_STARTUP_FILE before handing off to
+# supercronic: healthcheck's grace-period logic reads this marker to tell
+# "just started, first backup hasn't run yet" apart from "actually stuck".
+# Without it every fresh deployment reports unhealthy until the first
+# scheduled backup completes, which can be a full cron period away.
+#
+# --entrypoint /bin/bash makes bash PID 1; pfsense-backup then runs as a
+# forked child, so its internal `exec supercronic` only replaces that
+# child's process image, not the outer shell -- control returns to the
+# `; test -f ...` check once the (stubbed, fast-exiting) supercronic
+# finishes, unlike the other tests in this file which run pfsense-backup
+# directly as the container's own PID 1 and so cannot inspect state after
+# the exec handoff.
+
+@test "--cron creates the healthcheck startup marker before the supercronic handoff" {
+    run docker run -i --rm ${DOCKER_RUN_ARGS:-} \
+        -e "PATH=/test/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+        -e PFSENSE_HOST=fake-host \
+        -e PFSENSE_IDENTITY_FILE=/test/fixtures/pfsense-identity.key \
+        -e PFSENSE_IDENTITY_PASSWORD=testpassword \
+        -e BUCKET=test-bucket \
+        -e AWS_S3_BUCKET_NAME=test-bucket \
+        -e PFSENSE_BACKUP_CMD=/bin/true \
+        -e HEALTHCHECK_STARTUP_FILE=/tmp/test-startup-marker \
+        -v "${WHEREAMI}/bin:/test/bin:ro" \
+        -v "${WHEREAMI}/fixtures:/test/fixtures:ro" \
+        --entrypoint /bin/bash \
+        "${IMAGE}" \
+        -c '/usr/local/bin/pfsense-backup --cron >/dev/null 2>&1; test -f /tmp/test-startup-marker && echo MARKER_EXISTS || echo MARKER_MISSING'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"MARKER_EXISTS"* ]]
+}
