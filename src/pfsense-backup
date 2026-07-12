@@ -539,11 +539,9 @@ function run_scheduler() {
     # shellcheck disable=SC1090
     source "${ENV}"
 
-    # healthcheck's grace-period logic reads this marker to tell "just
-    # started, first backup hasn't run yet" apart from "actually stuck" --
-    # without it, every fresh deployment reports unhealthy until the first
-    # scheduled backup completes, which can be up to a full cron period away.
-    touch "${HEALTHCHECK_STARTUP_FILE:-/tmp/pfsense-backup.started-at}"
+    # Keep the healthcheck startup marker behavior behind the shared helper
+    # contract so derivatives can move cleanly to the base implementation.
+    touch_healthcheck_startup_marker
 
     # Ensure log directory exists
     (mkdir -pv "${PFSENSE_LOG_DIR}" \
