@@ -93,6 +93,21 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
+@test "common-functions: touch_healthcheck_startup_marker creates the marker" {
+    local marker="${TEST_TMPDIR}/startup-marker"
+    run env INCLUDE_DIR="${INCLUDE_DIR}" \
+        HEALTHCHECK_STARTUP_FILE="${marker}" \
+        bash -c 'source "${INCLUDE_DIR}/common-functions"; touch_healthcheck_startup_marker'
+    [ "$status" -eq 0 ]
+    [ -f "${marker}" ]
+}
+
+@test "common-functions: touch_healthcheck_startup_marker is a no-op when unset" {
+    run env INCLUDE_DIR="${INCLUDE_DIR}" \
+        bash -c 'source "${INCLUDE_DIR}/common-functions"; unset HEALTHCHECK_STARTUP_FILE; touch_healthcheck_startup_marker'
+    [ "$status" -eq 0 ]
+}
+
 @test "common-functions: path-append adds to end of PATH" {
     # Override PATH to a known value; include /bin so bash stays executable.
     result=$(INCLUDE_DIR="${INCLUDE_DIR}" PATH=/usr/bin:/bin \
