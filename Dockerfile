@@ -98,6 +98,7 @@ RUN set -eux; \
 
 COPY --chmod=755 ./src/healthcheck ./src/backup ./src/pfsense-backup \
                  ./src/startup /usr/local/bin/
+COPY --chmod=644 ./include/logging ./include/path /usr/local/include/
 
 RUN groupadd --gid "${GID}" "${USERNAME}" \
     && useradd \

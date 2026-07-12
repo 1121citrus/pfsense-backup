@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-07-11
+
+### Changed
+
+- `src/common-functions` now sources generator-managed includes
+  (`include/logging` and `include/path`) while preserving legacy
+  compatibility wrappers (`is_true`, `is_false`, and
+  `touch_healthcheck_startup_marker`). This keeps existing script and
+  test call sites stable while removing duplicated helper
+  implementations.
+- `Dockerfile` now copies `include/logging` and `include/path` into
+  `/usr/local/include/` at image build time, so shared helper loading
+  works inside the runtime container the same way it does in host-side
+  tests.
+
+### Added
+
+- Generator-managed `include/path` helper include to align with the
+  current citrus build-template model.
+
 ## [1.0.10] - 2026-07-10
 
 ### Fixed
@@ -192,7 +212,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.10...HEAD
+[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.11...HEAD
+[1.0.11]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.10...v1.0.11
 [1.0.10]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.9...v1.0.10
 [1.0.9]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.8...v1.0.9
 [1.0.8]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.7...v1.0.8
