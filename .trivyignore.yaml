@@ -107,6 +107,60 @@ vulnerabilities:
     statement: "fixed package version pending controlled runtime upgrade"
     expired_at: "2026-12-31T00:00:00Z"
 
+  # glib2: multiple buffer over-read / path traversal / integer underflow
+  # issues — fix: 2.82.2-770.amzn2023 (not yet in repo). Already suppressed
+  # in aws-backup-base's own .trivyignore; mirrored here since suppression
+  # is a scan-time parameter, not baked into the inherited base image.
+  - id: CVE-2026-58010
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-58011
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-58012
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-58013
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-58014
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-58015
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-58016
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+
+  # libacl: symlink traversal privilege escalation / TOCTOU — fix:
+  # 2.4.0-1.amzn2023.0.1 (not yet in repo)
+  - id: CVE-2026-54369
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-54370
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+
+  # cpython (python3, python3-libs): configparser injection, tarfile
+  # extractall filter bypass/DoS, unicodedata DoS, BZ2 decompression
+  # out-of-bounds write — fix: 3.9.25-1.amzn2023.0.8 (not yet in repo)
+  - id: CVE-2026-0864
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-11940
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-11972
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-3276
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-9669
+    statement: "fix version not yet available in AL2023 package repositories"
+    expired_at: "2026-12-31T00:00:00Z"
+
   # supercronic embedded Go stdlib vulnerability fixed in Go 1.26.4
   - id: CVE-2026-42504
     statement: "fixed in refreshed base image build; suppression retained until base rollout completes"

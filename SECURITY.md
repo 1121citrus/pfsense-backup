@@ -30,14 +30,18 @@ in this repository.
 
 | Result | Notes |
 | --- | --- |
-| **0 vulnerabilities** | Gating scan passes; build is not blocked. |
+| **0 vulnerabilities** | Gating scan passes after `.trivyignore` suppression of the entries below; build is not blocked. |
 
 ### Open Vulnerabilities
 
-The gating Trivy scan is clean, but advisory feeds still report the items below.
+The gating Trivy scan passes only via `.trivyignore` suppression; advisory
+feeds still report the items below.
 
 | Status | CVE / Advisory | Component | Notes |
 | --- | --- | --- | --- |
+| Upstream unavailable | `CVE-2026-58010`–`CVE-2026-58016` | `glib2` (AL2023, inherited from `aws-backup-base`) | Fix `2.82.2-770.amzn2023` not yet in the AL2023 repos. Already suppressed in `aws-backup-base`'s own `.trivyignore`; mirrored here since suppression is scan-time, not baked into the base image. |
+| Upstream unavailable | `CVE-2026-54369`, `CVE-2026-54370` | `libacl` (AL2023) | Fix `2.4.0-1.amzn2023.0.1` not yet in the AL2023 repos. |
+| Upstream unavailable | `CVE-2026-0864`, `CVE-2026-11940`, `CVE-2026-11972`, `CVE-2026-3276`, `CVE-2026-9669` | `python3` / `python3-libs` (AL2023) | Fix `3.9.25-1.amzn2023.0.8` not yet in the AL2023 repos. |
 | Upstream unavailable | `CVE-2026-44431`, `CVE-2026-44432` | `urllib3` | Docker Scout reports `urllib3@2.6.3` as HIGH. The fixed version is `2.7.0`, which is not yet published to the package index consumed by the image build. |
 | Scout metadata / feed issue | `CVE-2023-31484`, `CVE-2023-31486` | AL2023 `perl` subpackages | Docker Scout still reports these against AL2023 `perl` virtual/meta package entries even though the reported installed release (`5.32.1-477.amzn2023.0.8`) is newer than Scout's stated fixed releases (`.0.4` / `.0.5`). The runtime image does not install the top-level `perl` RPM directly. |
 | Scout stale package detection | `CVE-2026-44431` | `urllib3@1.25.10` | Docker Scout also reports a stale `urllib3@1.25.10` package record alongside the current `urllib3@2.6.3`. Trivy and the runtime validation see the current package set, and the image runs with `pip 26.0.1` and `urllib3 2.6.3`. |
