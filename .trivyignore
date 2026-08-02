@@ -52,10 +52,12 @@ CVE-2026-39820
 CVE-2026-39823
 CVE-2026-42499
 
-# urllib3 python package: fixed in urllib3 2.7.0; upstream package not yet
-# adopted in this runtime without compatibility validation
-CVE-2026-44431
-CVE-2026-44432
-
 # supercronic embedded Go stdlib: fixed in Go 1.26.4, pending refreshed base
 CVE-2026-42504
+
+# urllib3 python package: fixed in urllib3 2.7.0, but that release requires
+# Python >= 3.10 (verified against PyPI release metadata); this image's
+# base (aws-backup-base, AL2023) ships Python 3.9, so the fix cannot be
+# installed until the base image moves to a newer Python. See SECURITY.md.
+CVE-2026-44431
+CVE-2026-44432

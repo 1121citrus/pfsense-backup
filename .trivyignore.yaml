@@ -99,14 +99,6 @@ vulnerabilities:
     statement: "fixed package version not yet available in AL2023 package repositories"
     expired_at: "2026-12-31T00:00:00Z"
 
-  # urllib3 2.7.0 remediation pending compatibility rollout
-  - id: CVE-2026-44431
-    statement: "fixed package version pending controlled runtime upgrade"
-    expired_at: "2026-12-31T00:00:00Z"
-  - id: CVE-2026-44432
-    statement: "fixed package version pending controlled runtime upgrade"
-    expired_at: "2026-12-31T00:00:00Z"
-
   # glib2: multiple buffer over-read / path traversal / integer underflow
   # issues — fix: 2.82.2-770.amzn2023 (not yet in repo). Already suppressed
   # in aws-backup-base's own .trivyignore; mirrored here since suppression
@@ -164,4 +156,15 @@ vulnerabilities:
   # supercronic embedded Go stdlib vulnerability fixed in Go 1.26.4
   - id: CVE-2026-42504
     statement: "fixed in refreshed base image build; suppression retained until base rollout completes"
+    expired_at: "2026-12-31T00:00:00Z"
+
+  # urllib3 python package: fixed in urllib3 2.7.0, but that release
+  # requires Python >= 3.10; base image (aws-backup-base, AL2023) ships
+  # Python 3.9, so the fix is not installable until the base image moves
+  # to a newer Python. See SECURITY.md.
+  - id: CVE-2026-44431
+    statement: "fix requires Python >= 3.10; base image ships Python 3.9"
+    expired_at: "2026-12-31T00:00:00Z"
+  - id: CVE-2026-44432
+    statement: "fix requires Python >= 3.10; base image ships Python 3.9"
     expired_at: "2026-12-31T00:00:00Z"
