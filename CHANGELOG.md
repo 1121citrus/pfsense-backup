@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.14] - 2026-08-02
+
+### Security
+
+- Investigated bumping `Dockerfile` pip pins `urllib3>=2.6.3` → `2.7.0` and
+  `pip>=26.0.1` → `26.1.2` to resolve `CVE-2026-44431`/`CVE-2026-44432`
+  (HIGH) and pending pip GHSAs. **Reverted after a direct rebuild failed**:
+  both `urllib3 2.7.0` and `pip 26.1.2`/`26.1` require Python >= 3.10 (per
+  PyPI release metadata), while this image's base (`aws-backup-base`,
+  AL2023) ships Python 3.9, so neither package is installable here.
+  `pip>=26.0.1` (the prior pin, last release supporting Python 3.9) is kept
+  unchanged. Documented this Python-version ceiling in `SECURITY.md` as the
+  actual root cause of the open `urllib3` finding, rather than assuming it
+  was fixable with a version bump.
+- Documented two new open HIGH findings in `SECURITY.md`: AL2023 RPM-managed
+  `urllib3` (`python3-urllib3`, still `1.25.10`) carrying `CVE-2026-21441`,
+  `CVE-2025-66471`, `CVE-2025-66418`, `CVE-2021-33503`, `CVE-2026-44431`,
+  `CVE-2023-43804`; and RPM-managed `setuptools` (`python3-setuptools`,
+  still `59.6.0`) carrying `CVE-2022-40897`, `CVE-2025-47273`,
+  `CVE-2024-6345`. No AL2023 package fix is available for either yet
+  (verified via `dnf check-update`), and forcibly overwriting the
+  RPM-tracked files was assessed as unsafe given `aws` (AWS CLI v2) actually
+  resolves its Python dependencies from these RPM-managed paths — see the
+  new "AWS CLI Python Isolation" note in `SECURITY.md`.
+- Reviewed and re-confirmed no available fix for the previously documented
+  `glib2`/`libacl`/`python3` AL2023 CVE batch; bumped review date.
+- Created `.grype.yaml` so Grype's advisory suppression actually takes
+  effect: `build`'s Grype stage only ever read `.grype.yaml` (native config
+  format), but only `.grypeignore` (plain CVE list, unreferenced anywhere
+  in the repo) existed, so no Grype suppression was functioning. Ported
+  `.grypeignore`'s entries into `.grype.yaml` and added suppressions for the
+  HIGH findings above plus the MEDIUM/LOW RPM-copy findings (no SECURITY.md
+  entries for MEDIUM/LOW, per policy) and the `/usr/local` `pip 26.0.1`
+  MEDIUM GHSAs (`GHSA-wf93-45jw-7689`, `GHSA-jp4c-xjxw-mgf9`) and their
+  vendored `pygments` finding (`GHSA-mrwq-x4v8-fh7p`) — all blocked by the
+  same Python 3.10 floor as the Dockerfile bump above. `.grypeignore` is
+  retained as a human-readable manifest. Verified with a full local rebuild:
+  Trivy gating scan passes with 0 vulnerabilities; Grype reports 0
+  unsuppressed findings.
+
 ## [1.0.13] - 2026-07-23
 
 ### Security
