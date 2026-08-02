@@ -1,0 +1,60 @@
+# Grype ignore rules (native config format, consumed by `build`'s Stage 4b
+# via `--config /.grype.yaml`).
+#
+# NOTE: `.grypeignore` (plain CVE/advisory list) predates this file and is
+# NOT read by anything in this repo — `build` only recognizes `.grype.yaml`.
+# Every entry that was previously tracked only in `.grypeignore` had no
+# actual suppression effect. This file is now the functional source of
+# truth for Grype; `.grypeignore` is retained as a human-readable manifest
+# and should be kept in sync when entries here change.
+#
+# HIGH/CRITICAL entries below are documented in SECURITY.md. MEDIUM/LOW
+# entries are suppressed without SECURITY.md documentation per project
+# policy (no fix currently available; see .trivyignore.yaml for CVE-level
+# detail on the AL2023 packages).
+
+ignore:
+  # --- Carried over from .grypeignore (pre-existing, unverified relevance;
+  #     kept for continuity since removing them was never validated) ---
+  - vulnerability: ALAS2023-2026-1757
+  - vulnerability: ALAS2023-2026-1721
+  - vulnerability: CVE-2026-42504
+  - vulnerability: GO-2026-5038
+  - vulnerability: GHSA-mf9v-mfxr-j63j
+  - vulnerability: GHSA-qccp-gfcp-xxvc
+  - vulnerability: GHSA-q2q7-5pp4-w6pg
+
+  # --- HIGH: no dnf fix available in AL2023 repos as of 2026-08-02
+  #     (verified via `dnf check-update`, both filtered and full-list).
+  #     Documented in SECURITY.md. ---
+  - vulnerability: ALAS2023-2026-1942 # glib2
+  - vulnerability: ALAS2023-2026-1986 # libacl / acl
+  - vulnerability: ALAS2023-2026-1963 # python3 / python3-libs
+  - vulnerability: CVE-2026-44431 # urllib3 (pip /usr/local copy, capped at
+                                  # 2.6.3: fix 2.7.0 requires Python >= 3.10,
+                                  # base image ships Python 3.9) and RPM copy
+  - vulnerability: CVE-2026-44432 # urllib3, same root cause as CVE-2026-44431
+  - vulnerability: CVE-2026-21441 # urllib3 (RPM copy only)
+  - vulnerability: CVE-2025-66471 # urllib3 (RPM copy only)
+  - vulnerability: CVE-2025-66418 # urllib3 (RPM copy only)
+  - vulnerability: CVE-2021-33503 # urllib3 (RPM copy only)
+  - vulnerability: CVE-2023-43804 # urllib3 (RPM copy only)
+  - vulnerability: CVE-2022-40897 # setuptools (RPM copy only)
+  - vulnerability: CVE-2025-47273 # setuptools (RPM copy only)
+  - vulnerability: CVE-2024-6345  # setuptools (RPM copy only)
+
+  # --- MEDIUM/LOW: no dnf fix available; not documented in SECURITY.md
+  #     per policy. These affect RPM-managed system copies of Python
+  #     packages that ship alongside (but separate from) the pip-upgraded
+  #     copies under /usr/local — see SECURITY.md "Scout-Specific Notes"
+  #     for why overwriting them is not attempted. ---
+  - vulnerability: ALAS2023-2026-1939  # krb5-libs
+  - vulnerability: ALAS2023-2026-1973  # python3-pygments (RPM)
+  - vulnerability: GHSA-g4mx-q9vg-27p4 # urllib3 1.25.10 (RPM system copy)
+  - vulnerability: GHSA-65pc-fj4g-8rjx # idna 2.10 (RPM)
+  - vulnerability: GHSA-h35f-9h28-mq5c # setuptools 59.6.0 (RPM)
+  - vulnerability: GHSA-58qw-9mgm-455v # pip 21.3.1 (RPM pip-wheel copy)
+  - vulnerability: GHSA-5239-wwwm-4pmq # pygments 2.7.4
+  - vulnerability: GHSA-wf93-45jw-7689 # pip 26.0.1 (/usr/local): fix needs pip>=26.1.2 (Python >=3.10)
+  - vulnerability: GHSA-jp4c-xjxw-mgf9 # pip 26.0.1 (/usr/local): fix needs pip>=26.1 (Python >=3.10)
+  - vulnerability: GHSA-mrwq-x4v8-fh7p # pygments 2.7.4 vendored inside pip 26.0.1; frozen with pip's Python 3.9 ceiling

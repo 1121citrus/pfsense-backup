@@ -1,3 +1,6 @@
+# Human-readable manifest only — `build` does not read this file.
+# The functional Grype suppression config is `.grype.yaml`; keep both in
+# sync when adding or removing entries.
 ALAS2023-2026-1757
 ALAS2023-2026-1721
 CVE-2026-42504
@@ -5,3 +8,26 @@ GO-2026-5038
 GHSA-mf9v-mfxr-j63j
 GHSA-qccp-gfcp-xxvc
 GHSA-q2q7-5pp4-w6pg
+ALAS2023-2026-1942
+ALAS2023-2026-1986
+ALAS2023-2026-1963
+ALAS2023-2026-1939
+ALAS2023-2026-1973
+GHSA-g4mx-q9vg-27p4
+GHSA-65pc-fj4g-8rjx
+GHSA-h35f-9h28-mq5c
+GHSA-58qw-9mgm-455v
+GHSA-5239-wwwm-4pmq
+GHSA-wf93-45jw-7689
+GHSA-jp4c-xjxw-mgf9
+GHSA-mrwq-x4v8-fh7p
+CVE-2026-44431
+CVE-2026-44432
+CVE-2026-21441
+CVE-2025-66471
+CVE-2025-66418
+CVE-2021-33503
+CVE-2023-43804
+CVE-2022-40897
+CVE-2025-47273
+CVE-2024-6345
