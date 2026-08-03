@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.14] - 2026-08-02
+## [1.0.13] - 2026-08-02
 
 ### Security
 
@@ -46,11 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retained as a human-readable manifest. Verified with a full local rebuild:
   Trivy gating scan passes with 0 vulnerabilities; Grype reports 0
   unsuppressed findings.
-
-## [1.0.13] - 2026-07-23
-
-### Security
-
 - Reviewed CVE status and mirrored the glib2/libacl/python3 AL2023 batch
   (`CVE-2026-58010`–`CVE-2026-58016`, `CVE-2026-54369`, `CVE-2026-54370`,
   `CVE-2026-0864`, `CVE-2026-11940`, `CVE-2026-11972`, `CVE-2026-3276`,
@@ -59,6 +54,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (reviewed 2026-07-21) but not previously mirrored here; suppression is
   a scan-time parameter, not inherited from the base image. No dependency
   or code changes.
+
+### Fixed
+
+- `test/staging`'s Trivy scan mounted its ignorefile at a fixed
+  `.trivyignore` destination regardless of the configured source file's
+  name, silently forcing Trivy to parse `.trivyignore.yaml` (this repo's
+  actual, actively suppressed ignorefile) as a plain CVE list instead of
+  YAML. Every suppression in it was therefore ignored during staging
+  runs, surfacing as 19 unfixed HIGH findings in
+  `test_staging_trivy_scan` (the glib2/libacl/python3/python3-libs batch
+  already suppressed and documented above), despite `build`'s own
+  gating Trivy stage reporting 0 vulnerabilities against the same
+  image. Fixed by defaulting to `.trivyignore.yaml` and mounting it with
+  its extension preserved, matching the corrected logic already present
+  in `src/build/generate`'s `write_test_staging()` template.
 
 ## [1.0.12] - 2026-07-11
 
@@ -274,7 +284,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.12...HEAD
+[Unreleased]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.13...HEAD
+[1.0.13]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.12...v1.0.13
 [1.0.12]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.11...v1.0.12
 [1.0.11]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.10...v1.0.11
 [1.0.10]: https://github.com/1121citrus/pfsense-backup/compare/v1.0.9...v1.0.10
