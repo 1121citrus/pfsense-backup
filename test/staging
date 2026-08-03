@@ -79,7 +79,7 @@ _CACHE_RESET_TRIVY=false       # --cache reset=trivy: wipe Trivy DB volume
 _CACHE_RESET_GRYPE=false       # --cache reset=grype: wipe Grype DB volume
 _CACHE_SKIP_UPDATE_TRIVY=false  # --cache skip-update=trivy: keep existing DB
 _CACHE_SKIP_UPDATE_GRYPE=false  # --cache skip-update=grype: keep existing DB
-_TRIVY_IGNOREFILE=.trivyignore
+_TRIVY_IGNOREFILE=.trivyignore.yaml
 HOST="${HOST:-}"
 REMOTE_USER="${REMOTE_USER:-}"
 REMOTE_PASSWORD="${REMOTE_PASSWORD:-}"
@@ -264,8 +264,14 @@ test_staging_trivy_scan() {
         local _repo_dir
         _repo_dir="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
         if [[ -f "${_repo_dir}/${_TRIVY_IGNOREFILE}" ]]; then
-            _trivyign_v+=(-v "${_repo_dir}/${_TRIVY_IGNOREFILE}:/.trivyignore:ro")
-            _trivyign_a+=(--ignorefile /.trivyignore)
+            # Mount at a path that preserves the source file's own extension --
+            # Trivy picks its ignorefile parser (plain CVE-list vs YAML) from
+            # the mounted path, not the content, so a fixed ".trivyignore"
+            # destination silently breaks YAML-formatted ignorefiles.
+            local _trivyign_basename
+            _trivyign_basename=$(basename "${_TRIVY_IGNOREFILE}")
+            _trivyign_v+=(-v "${_repo_dir}/${_TRIVY_IGNOREFILE}:/${_trivyign_basename}:ro")
+            _trivyign_a+=(--ignorefile "/${_trivyign_basename}")
         fi
     fi
     local result=0
