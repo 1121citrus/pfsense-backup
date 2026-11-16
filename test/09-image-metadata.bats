@@ -101,3 +101,39 @@ setup() {
     run grep -E '^USER ' "${DOCKERFILE}"
     [ "$status" -eq 0 ]
 }
+
+@test "every dnf install/upgrade/reinstall uses --releasever=latest" {
+    # AL2023 locks dnf to the base image's release; without the flag
+    # `dnf upgrade` cannot reach security fixes published since then.
+    run grep -E 'dnf (install|upgrade|reinstall) ' "${DOCKERFILE}"
+    [ "$status" -eq 0 ]
+    run grep -E 'dnf (install|upgrade|reinstall) ' "${DOCKERFILE}"
+    ! printf '%s\n' "$output" | grep -v -- '--releasever=latest'
+}
+
+@test "Dockerfile performs a full dnf upgrade against the latest release" {
+    run grep -E 'dnf upgrade -y --quiet --releasever=latest \\$' "${DOCKERFILE}"
+    [ "$status" -eq 0 ]
+}
+
+@test "base image is pinned by sha256 digest" {
+    run grep -E '^ARG BASE_IMAGE=1121citrus/aws-backup-base@sha256:[0-9a-f]{64}$' "${DOCKERFILE}"
+    [ "$status" -eq 0 ]
+}
+
+@test "Dockerfile removes perl, which nothing at runtime uses" {
+    run grep -E "dnf remove -y --quiet 'perl\*'" "${DOCKERFILE}"
+    [ "$status" -eq 0 ]
+}
+
+@test "Dockerfile installs no pip packages" {
+    # /usr/bin/aws runs as `python3 -s` and never sees /usr/local, so a
+    # pip-installed copy only adds scanner findings no code path uses.
+    run grep -E '(^|[[:space:]])(pip3?|python3 -m pip) install|python3-pip[[:space:]]*\\$' "${DOCKERFILE}"
+    [ "$status" -eq 1 ]
+}
+
+@test "Dockerfile verifies the AWS CLI survives package removal" {
+    run grep -E '&& aws --version \\$' "${DOCKERFILE}"
+    [ "$status" -eq 0 ]
+}

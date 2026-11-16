@@ -5,7 +5,9 @@
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-ARG BASE_IMAGE=1121citrus/aws-backup-base@sha256:a9cd5e66d6fc0a645db58848e165b104b53f62d4b46f68055d0770a3193c70a4
+# aws-backup-base 1.2.3 (AL2023 2023.12.20261112, supercronic v0.2.49 built
+# with Go 1.27.4), pinned by multi-arch index digest.
+ARG BASE_IMAGE=1121citrus/aws-backup-base@sha256:dc4c176e47b9d1b818c149466bcb61ed2e5ea643a0d947d6b8fc8519b2b14852
 
 ARG PFSENSE_BACKUP_VERSION=
 ARG VERSION=dev
@@ -53,9 +55,20 @@ LABEL org.opencontainers.image.title="pfsense-backup" \
 # Install dependencies and configure the container environment.
 # bzip3 and pixz are not available in AL2023; gzip, bzip2, xz, lzop, and pigz
 # cover all common backup compression scenarios.
+# AL2023 locks dnf to the base image's release version, so a plain
+# `dnf upgrade` cannot reach security fixes published after the base image
+# was built.  `--releasever=latest` resolves against the newest AL2023
+# repository snapshot so every installed package picks up current fixes.
+#
+# No pip packages are installed: `/usr/bin/aws` runs as `python3 -s`, so
+# it never sees `/usr/local`, and no script here runs `python3`. A pip copy
+# of urllib3 would only add findings that no code path uses. perl is also
+# unused and removed. python3-setuptools is removed with `rpm -e --nodeps`:
+# awscli-2 requires it through python3-ruamel-yaml, so `dnf remove` would
+# take the AWS CLI too. `aws --version` fails the build if the CLI is gone.
 # hadolint ignore=DL3041
 RUN set -eux; \
-    dnf install -y --quiet \
+    dnf install -y --quiet --releasever=latest \
         bzip2 \
         gnupg2 \
         gzip \
@@ -63,23 +76,17 @@ RUN set -eux; \
         openssh-clients \
         openssl \
         pigz \
-        python3-pip \
         sshpass \
         traceroute \
         xz \
         zip \
-    && dnf upgrade -y --quiet \
-        gnutls \
-        libcap \
-        openssh \
-        openssh-clients \
-    && pip3 install --no-cache-dir --upgrade \
-        'cryptography>=46.0.5' \
-        'urllib3>=2.6.3' \
-        'wheel>=0.46.2' \
-        'zipp>=3.19.1' \
-    && python3 -m pip install --no-cache-dir --ignore-installed 'pip>=26.0.1' \
-    && dnf reinstall -y --quiet python3-urllib3 \
+    && dnf upgrade -y --quiet --releasever=latest \
+    && dnf remove -y --quiet 'perl*' \
+    && rpm -e --nodeps \
+            python3-setuptools \
+            python3-setuptools-wheel \
+            python3-pip-wheel \
+    && aws --version \
     && install -d -m 755 \
             /usr/local/share/pfsense-backup \
             /var/log/pfsense-backup \

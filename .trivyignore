@@ -1,63 +1,7 @@
-# CVEs with fix versions identified by Trivy but not yet available in the
-# AL2023 package repositories.  Remove entries once the fixed packages land.
-
-# glibc: DoS via iconv() — fix: 2.34-231.amzn2023.0.4 (not yet in repo)
-CVE-2026-4046
-
-# cpython: incomplete control-char validation in http.cookies
-# fix: python3 3.9.25-1.amzn2023.0.5, python3.12 3.12.13-2.amzn2023.0.1
-CVE-2026-3644
-
-# cpython: stack overflow parsing XML with deeply nested DTD content models
-# fix: python3.12 3.12.13-2.amzn2023.0.1
-CVE-2026-4224
-
-# cpython: arbitrary code execution via command injection in webbrowser.open()
-# fix: python3 3.9.25-1.amzn2023.0.5, python3.12 3.12.13-2.amzn2023.0.1
-CVE-2026-4786
-
-# cpython: arbitrary code execution/info disclosure via use-after-free in
-# decompression — fix: python3 3.9.25-1.amzn2023.0.5,
-# python3.12 3.12.13-2.amzn2023.0.1
-CVE-2026-6100
-
-# openssh/openssh-clients: privilege escalation via scp legacy protocol
-# fix: 8.7p1-8.amzn2023.0.17 (pending in AL2023 repos used by base image)
-CVE-2026-35385
-
-# gnutls: multiple HIGH vulnerabilities with fixed package
-# 3.8.3-8.amzn2023.0.4 not yet available in currently consumable AL2023 repo
-CVE-2026-33845
-CVE-2026-33846
-CVE-2026-3833
-CVE-2026-42009
-CVE-2026-42010
-CVE-2026-42014
-CVE-2026-42015
-CVE-2026-5260
-
-# libsolv: multiple HIGH vulnerabilities with fixed package
-# 0.7.22-1.amzn2023.0.4 not yet available in currently consumable AL2023 repo
-CVE-2026-48863
-CVE-2026-48864
-CVE-2026-9149
-CVE-2026-9150
-
-# libcap/go stdlib advisory set reported by Trivy against AL2023 base layer;
-# fixed libcap package 2.73-1.amzn2023.0.7 pending in repo
-CVE-2026-27142
-CVE-2026-33811
-CVE-2026-33814
-CVE-2026-39820
-CVE-2026-39823
-CVE-2026-42499
-
-# supercronic embedded Go stdlib: fixed in Go 1.26.4, pending refreshed base
-CVE-2026-42504
-
-# urllib3 python package: fixed in urllib3 2.7.0, but that release requires
-# Python >= 3.10 (verified against PyPI release metadata); this image's
-# base (aws-backup-base, AL2023) ships Python 3.9, so the fix cannot be
-# installed until the base image moves to a newer Python. See SECURITY.md.
-CVE-2026-44431
-CVE-2026-44432
+# Legacy plain-text mirror of .trivyignore.yaml (the file `build` reads).
+# Keep both in sync.
+#
+# 2026-11-15: no suppressions needed. The image no longer installs pip
+# packages, and `dnf upgrade --releasever=latest` reaches every fixed
+# AL2023 RPM. An unfiltered Trivy scan reports zero findings. See
+# SECURITY.md.

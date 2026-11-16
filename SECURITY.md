@@ -20,33 +20,72 @@ an S3 bucket. The attack surface is limited to:
 
 ---
 
-## CVE Status (Last Reviewed 2026-08-02)
+## CVE Status (Last Reviewed 2026-11-15)
 
 Advisory scans are run with Trivy (gating), Grype, and Docker Scout. The
 tables below reflect the current validated scan posture for the digest pinned
-in this repository.
+in this repository: `aws-backup-base` 1.2.3,
+`sha256:dc4c176e47b9d1b818c149466bcb61ed2e5ea643a0d947d6b8fc8519b2b14852`.
 
 ### Trivy (Gating Scan)
 
 | Result | Notes |
 | --- | --- |
-| **0 vulnerabilities** | Gating scan passes after `.trivyignore` suppression of the entries below; build is not blocked. |
+| **0 vulnerabilities** | No suppressions. An unfiltered scan (no ignore file, all severities, including unfixed) reports zero findings (verified 2026-11-15). `.trivyignore`/`.trivyignore.yaml` carry no entries. |
 
 ### Open Vulnerabilities
 
-The gating Trivy scan passes only via `.trivyignore` suppression; advisory
-feeds still report the items below.
+Grype reports one finding, which `.grype.yaml` suppresses: `urllib3`
+GHSA-q2q7-5pp4-w6pg (CVE-2021-33503), which AL2023 rates "Not Affected".
 
-| Status | CVE / Advisory | Component | Notes |
-| --- | --- | --- | --- |
-| Upstream unavailable | `CVE-2026-58010`–`CVE-2026-58016` | `glib2` (AL2023, inherited from `aws-backup-base`) | Fix `2.82.2-770.amzn2023` not yet in the AL2023 repos. Also reported by Grype/Scout as `ALAS2023-2026-1942`. Already suppressed in `aws-backup-base`'s own `.trivyignore`; mirrored here since suppression is scan-time, not baked into the base image. Confirmed still unavailable via `dnf check-update` on 2026-08-02. |
-| Upstream unavailable | `CVE-2026-54369`, `CVE-2026-54370` | `libacl` / `acl` (AL2023) | Fix `2.4.0-1.amzn2023.0.1` not yet in the AL2023 repos. Also reported by Grype/Scout as `ALAS2023-2026-1986`. Confirmed still unavailable via `dnf check-update` on 2026-08-02. |
-| Upstream unavailable | `CVE-2026-0864`, `CVE-2026-11940`, `CVE-2026-11972`, `CVE-2026-3276`, `CVE-2026-9669` | `python3` / `python3-libs` (AL2023) | Fix `3.9.25-1.amzn2023.0.8` not yet in the AL2023 repos. Also reported by Grype/Scout as `ALAS2023-2026-1963`. Confirmed still unavailable via `dnf check-update` on 2026-08-02. |
-| Blocked by Python version floor | `CVE-2026-44431`, `CVE-2026-44432` | `urllib3` (pip-managed copy, `/usr/local`, currently `2.6.3`) | Fixed in `urllib3 2.7.0`, but that release requires Python >= 3.10 (confirmed against PyPI release metadata: `urllib3==2.7.0` declares `requires_python: ">=3.10"`). This image's base (`aws-backup-base`, AL2023) ships Python 3.9, so `pip3 install --upgrade urllib3>=2.7.0` fails to resolve — verified directly against this image; see `CHANGELOG.md` [1.0.14]. No fix is installable until the base image's Python is upgraded. Suppressed via `.trivyignore`/`.trivyignore.yaml`/`.grype.yaml`. |
-| No safe remediation path | `CVE-2026-21441`, `CVE-2025-66471`, `CVE-2025-66418`, `CVE-2021-33503`, `CVE-2026-44431`, `CVE-2023-43804` | `urllib3` (RPM-managed system copy, `python3-urllib3` package, currently `1.25.10`) | This is a *separate* on-disk copy from the pip-managed `urllib3` under `/usr/local` (see "AWS CLI Python Isolation" below) — no AL2023 package fix is available, and overwriting RPM-tracked files with `pip install --target` risks breaking `aws`. Left in place and suppressed via `.grype.yaml`. |
-| No safe remediation path | `CVE-2022-40897`, `CVE-2025-47273`, `CVE-2024-6345` | `setuptools` (RPM-managed system copy, `python3-setuptools` package, currently `59.6.0`) | Same root cause as the `urllib3` entry above — no AL2023 package fix available for the RPM-managed copy actually used by `aws`. Suppressed via `.grype.yaml`. |
-| Scout metadata / feed issue | `CVE-2023-31484`, `CVE-2023-31486` | AL2023 `perl` subpackages | Docker Scout still reports these against AL2023 `perl` virtual/meta package entries even though the reported installed release (`5.32.1-477.amzn2023.0.8`) is newer than Scout's stated fixed releases (`.0.4` / `.0.5`). The runtime image does not install the top-level `perl` RPM directly. |
-| Resolved by base refresh | `CVE-2026-42504` | `supercronic` Go stdlib | `pfsense-backup` now pins the refreshed `aws-backup-base` digest `sha256:8ec7c8f3481295df72baf8f80c948db56d5a2d62e725260dda7e66d8c57243ad`. Re-run Docker Scout against the rebuilt child image after the next staging pass to confirm the advisory clears. |
+`python3-urllib3` and `python3-idna` are runtime dependencies of
+`awscli-2`. The installed builds (`python3-urllib3-1.25.10-5.amzn2023.0.9`,
+`python3-idna-2.10-3.amzn2023.0.4`) are the latest that AL2023 publishes.
+AL2023 backports fixes without changing the upstream `1.25.10` / `2.10`
+version strings, so scanners that read package metadata report CVEs that
+the installed RPMs already fix.
+
+Docker Scout (0C 7H 6M 0L) reports the following findings, which cannot be
+fixed in this repository:
+
+| CVE | Component | Why it remains |
+| --- | --- | --- |
+| CVE-2023-45803, CVE-2025-50181, CVE-2025-66418, CVE-2025-66471, CVE-2026-21441, CVE-2026-44431, CVE-2026-97689 | `urllib3` 1.25.10 | False positives. Each is listed as fixed in `rpm -q --changelog python3-urllib3` |
+| CVE-2021-33503 (HIGH) | `urllib3` 1.25.10 | AL2023 rates the package "Not Affected". Suppressed in `.grype.yaml` |
+| CVE-2023-43804 (HIGH), CVE-2024-37891 (MEDIUM) | `urllib3` 1.25.10 | Residual risk accepted. The RPM changelog does not list a fix, and AL2023 has no newer build. The AWS CLI only connects to AWS endpoints over HTTPS, which limits exposure to the cookie and proxy-header leaks these describe |
+| CVE-2024-3651, CVE-2026-45409 | `idna` 2.10 | False positives. Each is listed as fixed in `rpm -q --changelog python3-idna` |
+| CVE-2026-19617 (MEDIUM) | `lvm2` / `device-mapper-libs` | False positive. Scout compares the `device-mapper-libs` version (`1.02.185-1.amzn2023.0.6`) against the `lvm2` source package version. The installed RPM is built from `lvm2-2.03.16-1.amzn2023.0.6.src.rpm`, which is the fixed version Scout names |
+
+If a new finding has no fixed AL2023 build (confirm with
+`dnf --releasever=latest list --showduplicates <pkg>`), add it to
+`.trivyignore.yaml`/`.grype.yaml` with a dated justification and list it
+here.
+
+### Resolved 2026-11-15
+
+`dnf install`/`upgrade`/`reinstall` now run with `--releasever=latest`, and
+the base digest moved from `aws-backup-base` 1.1.9
+(`sha256:a9cd5e66...3193c70a4`, supercronic v0.2.47 built with Go 1.26.5)
+to 1.2.3 (supercronic v0.2.49 built with Go 1.27.4). This cleared 172
+gating HIGH findings without suppression: 160 AL2023 OS-package findings
+(including `curl-minimal`/`libcurl-minimal`, `glibc`, `systemd`, `python3`,
+and `rpm`) and 12 `supercronic` Go stdlib findings. Every earlier AL2023
+OS-package and Go stdlib suppression (`glib2`, `libacl`, `python3`,
+`gnutls`, `libsolv`, `libcap`, `glibc`, `openssh`, `CVE-2026-42504`) was
+removed from `.trivyignore`/`.trivyignore.yaml`: the installed packages now
+contain the fixes.
+
+The image also stopped installing pip packages and `python3-pip`, and now
+removes `perl`, `python3-setuptools`, `python3-setuptools-wheel`, and
+`python3-pip-wheel`. `/usr/bin/aws` runs as `python3 -s` (see "AWS CLI
+Python Isolation" below) and no script runs `python3`, so none of these
+were used at runtime. This removed the pip-managed `urllib3` 2.6.3 copy and
+its Python 3.9-blocked findings (`CVE-2026-44431`, `CVE-2026-44432`,
+`CVE-2026-97687`, `CVE-2026-97688`, `CVE-2026-97689`), the `setuptools`
+59.6.0 and `pip` 21.3.1 and 26.0.1 findings, and the `perl-*` Scout false
+positives (`CVE-2023-31484`, `CVE-2023-31486`). Docker Scout dropped from
+0C 60H 202M 2L to 0C 7H 6M 0L, and every Trivy suppression and all but one
+Grype suppression were removed.
 
 ### Remediated Vulnerabilities
 
@@ -66,10 +105,9 @@ Docker Scout is treated as advisory in staging because its feed and package
 inventory can lag the runtime state observed by Trivy and the live container.
 Current examples include:
 
-1. A stale `urllib3@1.25.10` record alongside the current `urllib3@2.6.3`.
-2. Repeated `perl` HIGH findings tied to AL2023 package metadata where the installed release is already newer than Scout's cited fixed version.
-3. Reported "fixed version" values (e.g. `urllib3 2.7.0`, `pip 26.1.2`) that exist upstream but are not actually installable on this image: both require Python >= 3.10, while this image's base ships Python 3.9. A Dockerfile bump to those pins was attempted and reverted after confirming (via a direct rebuild) that `pip3 install` cannot resolve them under Python 3.9. Treat Scout/Trivy/Grype "fix available" annotations as informational only until cross-checked against the target Python's compatibility, not as evidence a bump is safe to make.
-4. Long-running scans that may exceed the staging timeout budget; these runs are allowed to continue as advisory-only.
+1. `urllib3@1.25.10`, `idna@2.10`, and `lvm2` findings that the installed AL2023 RPMs already fix (see "Open Vulnerabilities" above).
+2. Reported "fixed version" values (e.g. `urllib3 2.7.0`, `pip 26.1.2`) that exist upstream but are not actually installable on this image: both require Python >= 3.10, while this image's base ships Python 3.9. A Dockerfile bump to those pins was attempted and reverted after confirming (via a direct rebuild) that `pip3 install` cannot resolve them under Python 3.9. Treat Scout/Trivy/Grype "fix available" annotations as informational only until cross-checked against the target Python's compatibility, not as evidence a bump is safe to make.
+3. Long-running scans that may exceed the staging timeout budget; these runs are allowed to continue as advisory-only.
 
 #### AWS CLI Python Isolation (image hygiene caveat)
 
@@ -79,18 +117,14 @@ shebang `#!/usr/bin/python3 -s`. On this AL2023 image, running Python with
 `/usr/local/lib64/python3.9/site-packages` from `sys.path` (verified via
 `python3 -s -c "import sys; print(sys.path)"` inside the built image) —
 only the RPM-managed `/usr/lib(64)/python3.9/site-packages` directories are
-visible. This means the `pip3 install --upgrade` step in the `Dockerfile`
-(`cryptography`, `urllib3`, `wheel`, `zipp`) protects only code that runs
-under a plain `python3` invocation; it does **not** change which
-`urllib3`/`setuptools`/`idna`/`pygments` versions `aws` itself resolves at
-runtime, since `aws` never sees `/usr/local`. `aws` continues to run against
-the older RPM-managed copies (`python3-urllib3 1.25.10`,
-`python3-setuptools 59.6.0`, etc.) regardless of any pip upgrades — see the
-"No safe remediation path" rows above. Note that, independently of this
-isolation issue, the pip-managed `/usr/local` copy of `urllib3` is itself
-capped at `2.6.3` by the base image's Python 3.9 (see the "Blocked by
-Python version floor" row above) — so upgrading the pip-managed copy
-would not currently be possible even if `aws` could see it.
+visible. A pip-installed package under `/usr/local` therefore protects
+only code that runs under a plain `python3` invocation, and nothing in
+this image does. This is why the image installs no pip packages: an earlier
+`pip3 install --upgrade` step (`cryptography`, `urllib3`, `wheel`, `zipp`)
+never changed what `aws` loads, and its `urllib3` 2.6.3 copy only added
+scanner findings. `aws` runs against the RPM-managed copies
+(`python3-urllib3` 1.25.10, `python3-idna` 2.10), which AL2023 patches by
+backport.
 
 ---
 
@@ -174,8 +208,7 @@ No process inside the container listens on a network port.
 ## Dependency Supply Chain
 
 The image extends `1121citrus/aws-backup-base` (Amazon Linux 2023). Additional
-packages are installed via `dnf` and Python packages via pip with minimum
-version constraints in `requirements.txt`. The CI pipeline runs
+packages are installed via `dnf`; the image installs no pip packages. The CI pipeline runs
 [Trivy](https://github.com/aquasecurity/trivy), Grype, and Docker Scout
 vulnerability scans against the pushed image on every merge to `main`.
 
