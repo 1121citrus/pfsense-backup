@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Run every `dnf install`/`upgrade`/`reinstall` in the `Dockerfile` with
+  `--releasever=latest`. AL2023 locks dnf to the base image's release, so
+  the previous targeted `dnf upgrade` could not reach newer fixes. The
+  targeted package list was replaced by a full `dnf upgrade`.
+- Move the `aws-backup-base` pin from 1.1.9 (`sha256:a9cd5e66...3193c70a4`)
+  to 1.2.3 (`sha256:dc4c176e...b2b14852`), whose `supercronic` v0.2.49 is
+  built with Go 1.27.4, resolving Grype finding GO-2026-6859.
+- Together these clear 172 gating Trivy HIGH findings without suppression:
+  160 AL2023 OS-package findings (including `curl-minimal`) and 12
+  `supercronic` Go stdlib findings.
+- Stop installing pip packages (`cryptography`, `urllib3`, `wheel`, `zipp`,
+  `pip`) and `python3-pip`. `/usr/bin/aws` runs as `python3 -s` and never
+  sees `/usr/local`, and no script runs `python3`, so the pip-managed
+  `urllib3` 2.6.3 copy protected nothing while carrying four HIGH findings
+  whose fix requires Python >= 3.10.
+- Remove `perl`, which nothing at runtime uses, and the `python3-setuptools`,
+  `python3-setuptools-wheel`, and `python3-pip-wheel` RPMs. A build-time
+  `aws --version` check guards the AWS CLI.
+- Together these cut Docker Scout from 0C 60H 202M 2L to 0C 7H 6M 0L.
+  The remaining findings are AL2023 backport false positives
+  (`python3-urllib3` 1.25.10, `python3-idna` 2.10, `lvm2`).
+- Remove every now-dead Trivy and Grype suppression. Trivy needs none;
+  Grype keeps only `GHSA-q2q7-5pp4-w6pg`, which AL2023 rates
+  "Not Affected". Documented in `SECURITY.md`.
+- Add static `Dockerfile` regression tests for `--releasever=latest`, the
+  digest-pinned base image, perl removal, the absence of pip installs, and
+  the `aws --version` guard.
+
+### Fixed
+
+- `build` retries the Trivy DB download three times, 15 seconds apart,
+  and the gating scan stops with a clear "no Trivy vulnerability DB is
+  cached" error instead of Trivy's `--skip-db-update cannot be specified
+  on the first run` when every download attempt fails.
+
 ## [1.0.13] - 2026-08-02
 
 ### Security
